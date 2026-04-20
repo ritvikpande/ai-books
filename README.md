@@ -37,8 +37,7 @@ A Python proof-of-concept that generates illustrated children's storybooks using
 
 ## Project Structure
 
-- `config.py` — API client setup, constants
-- `story_generator.py` — Story text and image prompt generation via Gemini
-- `image_generator.py` — Image generation with sliding-window context
-- `app.py` — Streamlit frontend
-- `outputs/` — Generated storybooks (gitignored)
+- `config.py` - API client setup, constants
+- `story_generator.py` - Story text and image prompt generation via Gemini
+- `image_generator.py` - Image generation with sliding-window context
+- `app.py` - Streamlit frontend
