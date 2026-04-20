@@ -1,4 +1,5 @@
 import json
+import time
 import logging
 from config import get_client, TEXT_MODEL
 
@@ -53,6 +54,7 @@ def generate_story(keywords: str, characters: str, setting: str, story_type: str
 Remember to replace ART_STYLE in every image_prompt with: {art_style}"""
 
     logger.info("Generating story with Gemini...")
+    start = time.time()
 
     response = client.models.generate_content(
         model=TEXT_MODEL,
@@ -63,8 +65,11 @@ Remember to replace ART_STYLE in every image_prompt with: {art_style}"""
         }
     )
 
+    elapsed = time.time() - start
+    logger.info(f"Story response received in {elapsed:.1f}s")
+
     raw = response.text.strip()
-    logger.info("Story received, parsing JSON...")
+    logger.info("Parsing JSON...")
 
     # Strip markdown code blocks if Gemini wraps the JSON anyway
     if raw.startswith("```"):
