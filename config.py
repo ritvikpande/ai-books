@@ -5,8 +5,8 @@ from google import genai
 load_dotenv()
 
 # Model to use for both text and image generation
-TEXT_MODEL = "gemini-2.5-flash-preview-05-20"
-IMAGE_MODEL = "gemini-2.0-flash-preview-image-generation"
+TEXT_MODEL = "gemini-3-flash-preview"
+IMAGE_MODEL = "gemini-2.5-flash-image"
 
 # Output directory for generated storybooks
 OUTPUT_DIR = "outputs"
