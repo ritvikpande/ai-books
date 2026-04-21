@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Storybook Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .sidebar { background-color: white; padding: 20px; border-right: 1px solid #dee2e6; height: 100vh; }
+        .scene-img { max-width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-3 sidebar">
+                <h4>Create Your Story</h4>
+                <hr>
+                <form id="storyForm">
+                    <div class="mb-3">
+                        <label class="form-label">Keywords / Interests</label>
+                        <input type="text" class="form-control" id="keywords" placeholder="e.g. ice cream, dinosaurs" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Characters</label>
+                        <input type="text" class="form-control" id="characters" placeholder="e.g. a curious girl named Mia" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Setting</label>
+                        <input type="text" class="form-control" id="setting" placeholder="e.g. magical forest" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Story Type</label>
+                        <select class="form-select" id="story_type">
+                            <option>Adventure</option>
+                            <option>Bedtime</option>
+                            <option>Funny</option>
+                            <option>Learning</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Art Style</label>
+                        <select class="form-select" id="art_style">
+                            <option>Watercolor storybook illustration</option>
+                            <option>Cartoon illustration</option>
+                            <option>Pencil sketch illustration</option>
+                            <option>Pixel art illustration</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100" id="generateBtn">Generate Story</button>
+                </form>
+            </div>
+
+            <div class="col-md-9 p-5">
+                <h1 class="mb-0">AI Storybook Generator</h1>
+                <p class="text-muted">Create a personalized illustrated storybook for your little one.</p>
+                
+                <div id="loadingDiv" class="alert alert-info d-none mt-4">
+                    <strong>Please wait...</strong> Writing story and drawing scenes (this takes ~1-2 minutes).
+                </div>
+
+                <div id="errorDiv" class="alert alert-danger d-none mt-4"></div>
+
+                <div id="storyOutput" class="d-none mt-4">
+                    <hr>
+                    <h2 id="storyTitle"></h2>
+                    <div class="alert alert-success">
+                        Story generated in <span id="timeElapsed"></span> seconds!
+                    </div>
+                    
+                    <div id="scenesContainer" class="row mt-4"></div>
+                    
+                    <hr>
+                    <button id="downloadPdfBtn" class="btn btn-secondary mt-3">Download PDF</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStoryData = null;
+
+        document.getElementById('storyForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // UI setup
+            document.getElementById('loadingDiv').classList.remove('d-none');
+            document.getElementById('storyOutput').classList.add('d-none');
+            document.getElementById('errorDiv').classList.add('d-none');
+            document.getElementById('generateBtn').disabled = true;
+
+            const payload = {
+                keywords: document.getElementById('keywords').value,
+                characters: document.getElementById('characters').value,
+                setting: document.getElementById('setting').value,
+                story_type: document.getElementById('story_type').value,
+                art_style: document.getElementById('art_style').value
+            };
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) throw new Error(data.error || 'Failed to generate');
+
+                currentStoryData = data; // Save to global variable for PDF download
+                
+                // Populate UI
+                document.getElementById('storyTitle').textContent = data.story_title;
+                document.getElementById('timeElapsed').textContent = data.time_elapsed;
+                
+                const container = document.getElementById('scenesContainer');
+                container.innerHTML = ''; // Clear previous scenes
+                
+                data.story.scenes.forEach((scene, index) => {
+                    const imagePath = encodeURIComponent(data.image_paths[index]);
+                    const html = `
+                        <div class="col-md-6 mb-4">
+                            <img src="/images?path=${imagePath}" class="scene-img mb-2" alt="Scene Image">
+                            <p class="text-muted small"><strong>Scene ${scene.scene_number}:</strong> ${scene.text}</p>
+                        </div>
+                    `;
+                    container.innerHTML += html;
+                });
+
+                document.getElementById('loadingDiv').classList.add('d-none');
+                document.getElementById('storyOutput').classList.remove('d-none');
+
+            } catch (err) {
+                document.getElementById('loadingDiv').classList.add('d-none');
+                document.getElementById('errorDiv').textContent = err.message;
+                document.getElementById('errorDiv').classList.remove('d-none');
+            } finally {
+                document.getElementById('generateBtn').disabled = false;
+            }
+        });
+
+        // PDF Download Handling
+        document.getElementById('downloadPdfBtn').addEventListener('click', async () => {
+            if (!currentStoryData) return;
+            
+            const btn = document.getElementById('downloadPdfBtn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Generating PDF...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/download_pdf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image_paths: currentStoryData.image_paths,
+                        story_title: currentStoryData.story_title,
+                        story_dir: currentStoryData.story_dir
+                    })
+                });
+
+                if (!response.ok) throw new Error('PDF generation failed');
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = currentStoryData.story_title.replace(/ /g, '_') + '.pdf';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } catch (err) {
+                alert('Error downloading PDF: ' + err.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

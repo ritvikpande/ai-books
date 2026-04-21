@@ -1,4 +1,5 @@
 google-genai
 pillow
 python-dotenv
-streamlit
+flask
+gunicorn
