@@ -6,7 +6,7 @@ A Python proof-of-concept that generates illustrated children's storybooks using
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/ritvikpande/ai-books.git
+   git clone -b streamlit-poc https://github.com/ritvikpande/ai-books.git
    cd ai-books
    ```
 
