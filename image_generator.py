@@ -108,7 +108,7 @@ def _generate_with_context(
     elapsed = time.time() - start
     logger.info(f"Image response received in {elapsed:.1f}s")
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(image_data)
 
