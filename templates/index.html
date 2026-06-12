@@ -22,9 +22,26 @@
                         <label class="form-label">Keywords / Interests</label>
                         <input type="text" class="form-control" id="keywords" placeholder="e.g. ice cream, dinosaurs" required>
                     </div>
-                    <div class="mb-3">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="mixed_media">
+                        <label class="form-check-label" for="mixed_media">
+                            Mixed Media<br>
+                            <small class="text-muted">photorealistic main characters in a cartoon world</small>
+                        </label>
+                    </div>
+                    <div class="mb-3" id="classicCharactersField">
                         <label class="form-label">Characters</label>
                         <input type="text" class="form-control" id="characters" placeholder="e.g. a curious girl named Mia" required>
+                    </div>
+                    <div class="d-none" id="mixedMediaFields">
+                        <div class="mb-3">
+                            <label class="form-label">Photorealistic Characters</label>
+                            <input type="text" class="form-control" id="photoreal_characters" placeholder="e.g. a happy adult man (Dad)">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Cartoon Characters <small class="text-muted">(optional)</small></label>
+                            <input type="text" class="form-control" id="cartoon_characters" placeholder="e.g. a toddler">
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Setting</label>
@@ -42,10 +59,27 @@
                     <div class="mb-3">
                         <label class="form-label">Art Style</label>
                         <select class="form-select" id="art_style">
-                            <option>Watercolor storybook illustration</option>
+                            <option>2D flat vector cartoon (pastel)</option>
+                            <option selected>Watercolor storybook illustration</option>
                             <option>Cartoon illustration</option>
                             <option>Pencil sketch illustration</option>
                             <option>Pixel art illustration</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Provider</label>
+                        <select class="form-select" id="provider">
+                            {% for pid, p in providers.items() %}
+                            <option value="{{ pid }}" {% if pid == default_provider %}selected{% endif %}>{{ p.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Image Model</label>
+                        <select class="form-select" id="image_model">
+                            {% for m in providers[default_provider].image_models %}
+                            <option value="{{ m.id }}" {% if m.id == default_image_model %}selected{% endif %}>{{ m.label }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <button type="submit" class="btn btn-primary w-100" id="generateBtn">Generate Story</button>
@@ -81,6 +115,32 @@
     <script>
         let currentStoryData = null;
 
+        const PROVIDER_MODELS = {{ providers | tojson }};
+
+        // Mixed Media toggle: swap character fields, preselect the proven style
+        document.getElementById('mixed_media').addEventListener('change', (e) => {
+            const mixed = e.target.checked;
+            document.getElementById('classicCharactersField').classList.toggle('d-none', mixed);
+            document.getElementById('mixedMediaFields').classList.toggle('d-none', !mixed);
+            document.getElementById('characters').required = !mixed;
+            document.getElementById('photoreal_characters').required = mixed;
+            if (mixed) {
+                document.getElementById('art_style').value = '2D flat vector cartoon (pastel)';
+            }
+        });
+
+        // Repopulate model list when provider changes (future-proofing; one provider today)
+        document.getElementById('provider').addEventListener('change', (e) => {
+            const select = document.getElementById('image_model');
+            select.innerHTML = '';
+            PROVIDER_MODELS[e.target.value].image_models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.label;
+                select.appendChild(opt);
+            });
+        });
+
         document.getElementById('storyForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -95,7 +155,12 @@
                 characters: document.getElementById('characters').value,
                 setting: document.getElementById('setting').value,
                 story_type: document.getElementById('story_type').value,
-                art_style: document.getElementById('art_style').value
+                art_style: document.getElementById('art_style').value,
+                provider: document.getElementById('provider').value,
+                image_model: document.getElementById('image_model').value,
+                mixed_media: document.getElementById('mixed_media').checked,
+                photoreal_characters: document.getElementById('photoreal_characters').value,
+                cartoon_characters: document.getElementById('cartoon_characters').value
             };
 
             try {
