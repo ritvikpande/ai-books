@@ -3,24 +3,29 @@
 **Plan:** [2026-06-12-mixed-media-model-selection.md](2026-06-12-mixed-media-model-selection.md)
 **Spec:** [../specs/2026-06-12-mixed-media-model-selection-design.md](../specs/2026-06-12-mixed-media-model-selection-design.md)
 **Branch:** `feat/face-swap`
-**Last updated:** 2026-06-12 (execution starting)
+**Last updated:** 2026-06-12 (after Task 7 — all build tasks done)
 
 ## Done
 
 - Design spec written, approved, committed (`d28e61a`)
 - Implementation plan written, self-reviewed, committed (`f0e080b`)
+- **Task 1: Test infrastructure** — pytest 9.0.3 added + installed (`b53ee03`), verified
+- **Task 2: Provider abstraction** — `providers.py` + 6 tests (`8c0e8f1`); spec review ✅, quality review ✅ (no fixes needed)
+- **Task 3: Prompt assembly** — `prompt_assembly.py` + 14 tests (`609d918`, polish `f3ea289`); spec review ✅, quality review ✅ (minor docstring + None test applied). Suite: 20 passed
+
+- **Task 4: Provider threading** — `config.py` + `image_generator.py` (`bf145ee`, polish `7c9ac4f`); spec review ✅, quality review ✅. ⚠️ app.py call site intentionally stale until Task 6 — branch not runnable until then.
+
+- **Task 5: Mixed-media story generation** — `story_generator.py` + 10 tests (`b54a718`, polish `40665c3` adds null-field hardening); spec review ✅, quality review ✅. Suite: 30 passed
+
+- **Task 6: Flask wiring** — `app.py` (`547e08e`); spec review ✅, quality review ✅ (no fixes). Stale call site fixed — app runnable again. 30 tests green.
+
+- **Task 7: Frontend** — `templates/index.html` (`a9a5f8f`); spec review ✅, quality review ✅ (no fixes). Note for E2E: art-style auto-select on Mixed Media check is one-directional (unchecking doesn't restore previous style — by design)
 
 ## Next
 
-- **Task 1: Test infrastructure** — add pytest to requirements.txt, install into venv, verify
+- Final code review of the whole branch (in progress)
+- **Task 8: Manual E2E validation** — awaiting user go-ahead (costs ~$1–2 CAD): classic regression book, mixed-media on Flash, mixed-media on Pro, 400-validation spot checks
 
 ## Pending
 
-- Task 2: Provider abstraction (`providers.py` + tests)
-- Task 3: Mixed-media prompt assembly (`prompt_assembly.py` + tests)
-- Task 4: Thread provider/model through `config.py` + `image_generator.py`
-- Task 5: Mixed-media story generation (`story_generator.py` + tests)
-- Task 6: Flask wiring (`app.py`)
-- Task 7: Frontend (`templates/index.html`)
-- Task 8: Manual E2E validation — **requires user confirmation first (costs ~$1–2 CAD)**
-- Final code review of the whole branch
+- (after Task 8) finishing-a-development-branch: merge/PR decision
