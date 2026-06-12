@@ -84,8 +84,9 @@ def _validate_story(story: dict, mixed_media: bool = False) -> None:
         for key in required:
             assert key in scene, f"Scene missing '{key}'"
         if mixed_media:
-            assert scene["photoreal_action"].strip(), "photoreal_action must not be empty"
-            assert scene["background"].strip(), "background must not be empty"
+            for field in ("photoreal_action", "background"):
+                assert isinstance(scene[field], str) and scene[field].strip(), \
+                    f"{field} must be a non-empty string"
 
 
 def generate_story(keywords: str, characters: str, setting: str, story_type: str,

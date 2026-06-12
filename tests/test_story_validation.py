@@ -76,3 +76,16 @@ def test_mixed_scene_empty_cartoon_elements_allowed():
     story = _mixed_story()
     story["scenes"][1]["cartoon_elements"] = ""
     _validate_story(story, mixed_media=True)
+
+
+def test_mixed_scene_null_photoreal_action_rejected():
+    story = _mixed_story()
+    story["scenes"][0]["photoreal_action"] = None  # JSON null from the LLM
+    with pytest.raises(AssertionError):
+        _validate_story(story, mixed_media=True)
+
+
+def test_mixed_scene_null_cartoon_elements_allowed():
+    story = _mixed_story()
+    story["scenes"][2]["cartoon_elements"] = None  # JSON null from the LLM
+    _validate_story(story, mixed_media=True)
