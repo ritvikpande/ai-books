@@ -3,8 +3,7 @@ import io
 import time
 import logging
 from PIL import Image, ImageDraw, ImageFont
-from google.genai import types
-from config import get_client, IMAGE_MODEL, OUTPUT_DIR
+from config import OUTPUT_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -74,20 +73,21 @@ def add_caption(image_path: str, caption_text: str) -> None:
 # Core image generation helpers
 # ---------------------------------------------------------------------------
 
-def _build_contents(prompt: str, context_paths: list) -> list:
-    """Build multimodal contents list: previous images first, then text prompt."""
-    parts = []
+def _load_context_bytes(context_paths: list) -> list:
+    """Read sliding-window context images from disk as PNG bytes."""
+    images = []
     for path in context_paths:
         with open(path, "rb") as f:
-            parts.append(types.Part.from_bytes(data=f.read(), mime_type="image/png"))
-    parts.append(types.Part.from_text(text=prompt))
-    return parts
+            images.append(f.read())
+    return images
 
 
 def _generate_with_context(
     prompt: str,
     context_paths: list,
     output_path: str,
+    provider,
+    model: str,
     caption_text: str = ""
 ) -> str:
     """
@@ -95,33 +95,18 @@ def _generate_with_context(
     Saves to output_path, applies caption if provided.
     Returns output_path.
     """
-    client = get_client()
-    contents = _build_contents(prompt, context_paths)
-
     logger.info(f"Generating image: {os.path.basename(output_path)} "
-                f"(context: {len(context_paths)} previous image(s))")
+                f"(model: {model}, context: {len(context_paths)} previous image(s))")
     start = time.time()
 
-    response = client.models.generate_content(
-        model=IMAGE_MODEL,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"]
-        )
+    image_data = provider.generate_image(
+        prompt=prompt,
+        context_images=_load_context_bytes(context_paths),
+        model=model,
     )
 
     elapsed = time.time() - start
     logger.info(f"Image response received in {elapsed:.1f}s")
-
-    # Extract image bytes
-    image_data = None
-    for part in response.candidates[0].content.parts:
-        if part.inline_data is not None:
-            image_data = part.inline_data.data
-            break
-
-    if image_data is None:
-        raise ValueError("No image returned in response")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "wb") as f:
@@ -139,15 +124,16 @@ def _generate_with_context(
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_single_image(prompt: str, output_path: str, caption_text: str = "") -> str:
+def generate_single_image(prompt: str, output_path: str, provider, model: str,
+                          caption_text: str = "") -> str:
     """
     Generate a single image from a text prompt (no context).
     Kept for standalone testing.
     """
-    return _generate_with_context(prompt, [], output_path, caption_text)
+    return _generate_with_context(prompt, [], output_path, provider, model, caption_text)
 
 
-def generate_all_images(story: dict, output_dir: str) -> list:
+def generate_all_images(story: dict, output_dir: str, provider, model: str) -> list:
     """
     Generate all 5 scene images using a sliding window of previous images.
 
@@ -175,14 +161,11 @@ def generate_all_images(story: dict, output_dir: str) -> list:
             prompt=scene["image_prompt"],
             context_paths=context,
             output_path=output_path,
+            provider=provider,
+            model=model,
             caption_text=scene["text"]
         )
         saved_paths.append(output_path)
-
-        # # Sleep between requests to respect rate limits (skip after last scene)
-        # if i < len(scenes) - 1:
-        #     logger.info("Waiting 12s before next image (rate limit)...")
-        #     time.sleep(12)
 
     logger.info(f"All {len(saved_paths)} images generated.")
     return saved_paths
@@ -223,7 +206,16 @@ if __name__ == "__main__":
         "Setting: A bright forest with giant candy canes. Mood: Playful. "
         "Style: watercolor storybook illustration. No text or words in the image."
     )
+    from providers import get_provider
+    from config import DEFAULT_PROVIDER, DEFAULT_IMAGE_MODEL
+
     output_path = os.path.join(OUTPUT_DIR, "test", "scene_1.png")
-    saved = generate_single_image(test_prompt, output_path, caption_text="Mia and Biscuit walk into the candy forest!")
+    saved = generate_single_image(
+        test_prompt,
+        output_path,
+        provider=get_provider(DEFAULT_PROVIDER),
+        model=DEFAULT_IMAGE_MODEL,
+        caption_text="Mia and Biscuit walk into the candy forest!",
+    )
     print(f"\nImage saved to: {saved}")
     Image.open(saved).show()
