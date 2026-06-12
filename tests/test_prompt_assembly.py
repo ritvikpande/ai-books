@@ -53,6 +53,13 @@ def test_empty_cartoon_elements_skipped():
     assert "  " not in prompt  # no double spaces from a dropped empty sentence
 
 
+def test_none_cartoon_elements_skipped():
+    scene = dict(SCENE, cartoon_elements=None)  # JSON null from the LLM
+    prompt = _assemble(scene=scene)
+    assert "  " not in prompt
+    assert "None" not in prompt
+
+
 def test_background_uses_world_phrase():
     prompt = _assemble()
     assert (

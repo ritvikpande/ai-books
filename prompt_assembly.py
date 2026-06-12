@@ -42,6 +42,12 @@ def assemble_mixed_media_prompt(
     cartoon_characters: str,
     art_style: str,
 ) -> str:
+    """Wrap the scene's visual fields in the validated mixed-media boilerplate.
+
+    Preconditions: all string args must be non-None, and scene must have passed
+    story_generator._validate_story (guarantees non-empty photoreal_action and
+    background). Only cartoon_elements is optional and may be missing/None/empty.
+    """
     phrases = STYLE_PHRASES.get(art_style.lower().strip(), STYLE_PHRASES[DEFAULT_STYLE])
 
     sentences = [
