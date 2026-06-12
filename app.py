@@ -8,7 +8,8 @@ from flask import Flask, render_template, request, jsonify, send_file, send_from
 
 from story_generator import generate_story
 from image_generator import generate_all_images, generate_pdf
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, DEFAULT_PROVIDER, DEFAULT_IMAGE_MODEL
+from providers import get_provider, validate_model, providers_meta
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -17,7 +18,12 @@ app = Flask(__name__)
 
 @app.route('/', methods=['GET'])
 def index():
-    return render_template('index.html')
+    return render_template(
+        'index.html',
+        providers=providers_meta(),
+        default_provider=DEFAULT_PROVIDER,
+        default_image_model=DEFAULT_IMAGE_MODEL,
+    )
 
 @app.route('/generate', methods=['POST'])
 def generate():
@@ -28,8 +34,23 @@ def generate():
     story_type = data.get('story_type', 'Adventure').lower()
     art_style = data.get('art_style', 'Watercolor storybook illustration').lower()
 
-    if not keywords or not characters or not setting:
-        return jsonify({"error": "Please fill in Keywords, Characters, and Setting."}), 400
+    provider_id = data.get('provider', DEFAULT_PROVIDER)
+    image_model = data.get('image_model', DEFAULT_IMAGE_MODEL)
+    try:
+        validate_model(provider_id, image_model)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    mixed_media = bool(data.get('mixed_media'))
+    photoreal_characters = (data.get('photoreal_characters') or '').strip()
+    cartoon_characters = (data.get('cartoon_characters') or '').strip()
+
+    if mixed_media:
+        if not keywords or not setting or not photoreal_characters:
+            return jsonify({"error": "Please fill in Keywords, Setting, and Photorealistic Characters."}), 400
+    else:
+        if not keywords or not characters or not setting:
+            return jsonify({"error": "Please fill in Keywords, Characters, and Setting."}), 400
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     story_dir = os.path.join(OUTPUT_DIR, f"story_{timestamp}")
@@ -41,17 +62,22 @@ def generate():
         # Generate story
         story = generate_story(
             keywords=keywords,
-            characters=characters,
+            characters=characters or "",
             setting=setting,
             story_type=story_type,
-            art_style=art_style
+            art_style=art_style,
+            mixed_media=mixed_media,
+            photoreal_characters=photoreal_characters,
+            cartoon_characters=cartoon_characters,
         )
 
         with open(os.path.join(story_dir, "story.json"), "w") as f:
             json.dump(story, f, indent=2)
 
         # Generate all images
-        image_paths = generate_all_images(story, story_dir)
+        image_paths = generate_all_images(
+            story, story_dir, get_provider(provider_id), image_model
+        )
 
         total_elapsed = time.time() - total_start
         logger.info(f"Total generation time: {total_elapsed:.1f}s")
