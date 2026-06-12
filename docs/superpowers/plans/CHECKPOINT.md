@@ -21,11 +21,12 @@
 
 - **Task 7: Frontend** — `templates/index.html` (`a9a5f8f`); spec review ✅, quality review ✅ (no fixes). Note for E2E: art-style auto-select on Mixed Media check is one-directional (unchecking doesn't restore previous style — by design)
 
+- **Final whole-branch review** ✅ — "Ready for manual E2E + merge: Yes (after Task 8)". No critical/important issues. 30 tests green. Minor notes: mixed-media user prompt omits art_style (by design — watch pixel/pencil coherence in E2E); mixed validation stricter than spec (intentional); one-directional art-style auto-select (by design).
+
 ## Next
 
-- Final code review of the whole branch (in progress)
-- **Task 8: Manual E2E validation** — awaiting user go-ahead (costs ~$1–2 CAD): classic regression book, mixed-media on Flash, mixed-media on Pro, 400-validation spot checks
+- **Task 8: Manual E2E validation** — user deferred ("not now", 2026-06-12). When resuming: start `venv\Scripts\python app.py`, generate (1) classic regression book, (2) mixed-media on Flash, (3) mixed-media on Pro; verify story.json image_prompts start with "A mixed media children's book illustration collage."; spot-check 400s. Costs ~$1–2 CAD, needs GEMINI_API_KEY in .env.
 
 ## Pending
 
-- (after Task 8) finishing-a-development-branch: merge/PR decision
+- (after Task 8) finishing-a-development-branch: merge/PR decision; branch not yet pushed to origin
