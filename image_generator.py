@@ -4,6 +4,7 @@ import time
 import logging
 from PIL import Image, ImageDraw, ImageFont
 from config import OUTPUT_DIR
+from prompt_assembly import assemble_reference_prompt, character_label
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -131,6 +132,54 @@ def generate_single_image(prompt: str, output_path: str, provider, model: str,
     Kept for standalone testing.
     """
     return _generate_with_context(prompt, [], output_path, provider, model, caption_text)
+
+
+def generate_reference_images(
+    photoreal_characters: list,
+    cartoon_characters: list,
+    art_style: str,
+    output_dir: str,
+    provider,
+    model: str,
+) -> list:
+    """Generate one standalone reference image per character (no context images).
+
+    Order is the reference-ordering invariant shared with the prompt assembler and
+    generate_all_images: photoreal characters first, then cartoon. Saved under
+    <output_dir>/refs/ as <kind>_<index>.png with NO caption (these anchor the
+    characters' appearance and must stay clean). Cartoon characters are skipped
+    entirely when that list is empty.
+
+    Returns ordered records: [{"kind", "index", "name", "path"}, ...].
+    """
+    refs_dir = os.path.join(output_dir, "refs")
+    os.makedirs(refs_dir, exist_ok=True)
+
+    records = []
+    groups = (
+        ("photoreal", photoreal_characters or []),
+        ("cartoon", cartoon_characters or []),
+    )
+    for kind, chars in groups:
+        for index, char in enumerate(chars, start=1):
+            prompt = assemble_reference_prompt(char, kind, art_style)
+            label = character_label(char)
+            logger.info(f"Generating {kind} reference {index} ({label})")
+            start = time.time()
+
+            image_data = provider.generate_image(
+                prompt=prompt, context_images=[], model=model
+            )
+
+            logger.info(f"Reference image received in {time.time() - start:.1f}s")
+            path = os.path.join(refs_dir, f"{kind}_{index}.png")
+            with open(path, "wb") as f:
+                f.write(image_data)
+
+            records.append({"kind": kind, "index": index, "name": label, "path": path})
+
+    logger.info(f"{len(records)} character reference image(s) generated.")
+    return records
 
 
 def generate_all_images(story: dict, output_dir: str, provider, model: str) -> list:

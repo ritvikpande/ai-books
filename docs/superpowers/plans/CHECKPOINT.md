@@ -3,7 +3,7 @@
 **Plan:** `~/.claude/plans/fizzy-splashing-truffle.md` (approved 2026-06-15)
 **Prior feature plan:** [2026-06-12-mixed-media-model-selection.md](2026-06-12-mixed-media-model-selection.md)
 **Branch:** `feat/face-swap`
-**Last updated:** 2026-06-15 (after Task 3)
+**Last updated:** 2026-06-15 (after Task 4)
 
 ## Testing findings (E2E round 1 — manual, by user)
 
@@ -24,12 +24,13 @@ Tasks 1–7 built, reviewed, committed (`f0e080b`..`2faf7fb`); manual E2E perfor
 - **Task 2: Reference prompt** — `assemble_reference_prompt(char, kind, art_style)` in `prompt_assembly.py` (photoreal = real-photo, no style words; cartoon = STYLE_PHRASES) + 11 tests (`tests/test_reference_prompt.py`). Full suite: 56 passed.
 - **Task 3: Mixed-media prompt → arrays** — `assemble_mixed_media_prompt` now takes character **lists**; contrast built from `join_labels`; new `_reference_instruction` sentence enumerates "reference N is <name>" (photoreal then cartoon). `tests/test_prompt_assembly.py` rewritten (17 tests). Full suite: 59 passed. ⚠️ `story_generator` mixed-path call site passes strings → intentionally stale until Task 6; classic path unaffected; mixed path is not unit-tested so suite stays green.
 
+- **Task 4: Reference generation** — `generate_reference_images(photoreal, cartoon, art_style, output_dir, provider, model)` in `image_generator.py`: one no-context call per character, saved `refs/<kind>_<n>.png`, no caption, returns ordered records (photoreal then cartoon; cartoon skipped if empty). Fake-provider tests (6) in `tests/test_reference_generation.py`. Full suite: 65 passed.
+
 ## Next
 
-- **Task 4:** `generate_reference_images` (no-context, `refs/`, no caption) in `image_generator.py`.
+- **Task 5:** thread `reference_paths` into `generate_all_images` / `_generate_with_context` (refs first, then 2-page window); classic unchanged.
 
 ## Pending
-- Task 5: thread `reference_paths` into `generate_all_images` / `_generate_with_context` (refs first, then 2-page window); classic unchanged.
 - Task 6: `story_generator.py` → arrays + rewritten `MIXED_MEDIA_SYSTEM_PROMPT` (action-by-name, appearance fixed by refs).
 - Task 7: `app.py` → parse arrays, validate ≥1 photoreal + soft cap, orchestrate story→refs→scenes, persist `character_refs`.
 - Task 8: `templates/index.html` → dynamic character cards (dropdowns + large textarea, +/× buttons), `collectCharacters`, Pro default + hint.
