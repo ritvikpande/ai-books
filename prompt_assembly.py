@@ -36,6 +36,65 @@ def _clause(text: str) -> str:
     return text.strip().rstrip(".")
 
 
+def _norm(value) -> str:
+    """Normalize a character field: trim, treat None/'unspecified' as empty."""
+    text = (value or "").strip()
+    return "" if text.lower() == "unspecified" else text
+
+
+def _join_and(items: list) -> str:
+    """Join non-empty items with commas and a trailing 'and' (Oxford-free)."""
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + f" and {items[-1]}"
+
+
+# Structured character fields, in the order they read best in a prompt.
+_TRAIT_FIELDS = (
+    ("height", "{} height"),
+    ("skin_tone", "{} skin tone"),
+    ("hair_color", "{} hair"),
+    ("body_type", "{} build"),
+)
+
+
+def compose_character_description(char: dict) -> str:
+    """Turn one structured character object into a single prose description.
+
+    Name leads (as a label), then physical traits from the dropdowns, then the
+    free-text description. Empty / 'unspecified' fields are skipped. The only
+    place a character object becomes prose, so the reference-image prompt, the
+    LLM context, and the scene prompt all agree. Returns "" for an empty object.
+    """
+    name = _norm(char.get("name"))
+    traits = [
+        fmt.format(_norm(char.get(key)))
+        for key, fmt in _TRAIT_FIELDS
+        if _norm(char.get(key))
+    ]
+    description = _norm(char.get("description"))
+    if description:
+        traits.append(description)
+
+    trait_str = ", ".join(traits)
+    if name and trait_str:
+        return f"{name}: {trait_str}"
+    return name or trait_str
+
+
+def character_label(char: dict) -> str:
+    """Short identifier for a character: its name, else its free text, else generic."""
+    return _norm(char.get("name")) or _norm(char.get("description")) or "the character"
+
+
+def join_labels(chars: list) -> str:
+    """Join several characters' labels into one phrase, e.g. 'Dad and Mom'."""
+    return _join_and([character_label(c) for c in chars])
+
+
 def assemble_mixed_media_prompt(
     scene: dict,
     photoreal_characters: str,
