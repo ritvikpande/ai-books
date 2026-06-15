@@ -3,7 +3,7 @@
 **Plan:** `~/.claude/plans/fizzy-splashing-truffle.md` (approved 2026-06-15)
 **Prior feature plan:** [2026-06-12-mixed-media-model-selection.md](2026-06-12-mixed-media-model-selection.md)
 **Branch:** `feat/face-swap`
-**Last updated:** 2026-06-15 (after Task 1)
+**Last updated:** 2026-06-15 (after Task 2)
 
 ## Testing findings (E2E round 1 — manual, by user)
 
@@ -21,14 +21,13 @@ Tasks 1–7 built, reviewed, committed (`f0e080b`..`2faf7fb`); manual E2E perfor
 ## Done (this feature)
 
 - **Task 1: Composition helpers** — `prompt_assembly.py`: `compose_character_description`, `character_label`, `join_labels` + 15 tests (`tests/test_character_composition.py`). Commit `287fcfb`. Full suite: 45 passed.
+- **Task 2: Reference prompt** — `assemble_reference_prompt(char, kind, art_style)` in `prompt_assembly.py` (photoreal = real-photo, no style words; cartoon = STYLE_PHRASES) + 11 tests (`tests/test_reference_prompt.py`). Full suite: 56 passed.
 
 ## Next
 
-- **Task 2: Reference prompt** — `assemble_reference_prompt(char, kind, art_style)` in `prompt_assembly.py` (photoreal = real-photo wording, no style words; cartoon = STYLE_PHRASES world_phrase/style_closer) + tests.
+- **Task 3:** rewrite `assemble_mixed_media_prompt` for character arrays + reference-instruction sentence (rewrite `tests/test_prompt_assembly.py`).
 
 ## Pending
-
-- Task 3: rewrite `assemble_mixed_media_prompt` for character arrays + reference-instruction sentence (rewrite `tests/test_prompt_assembly.py`).
 - Task 4: `generate_reference_images` (no-context, `refs/`, no caption) in `image_generator.py`.
 - Task 5: thread `reference_paths` into `generate_all_images` / `_generate_with_context` (refs first, then 2-page window); classic unchanged.
 - Task 6: `story_generator.py` → arrays + rewritten `MIXED_MEDIA_SYSTEM_PROMPT` (action-by-name, appearance fixed by refs).

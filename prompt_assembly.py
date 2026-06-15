@@ -95,6 +95,34 @@ def join_labels(chars: list) -> str:
     return _join_and([character_label(c) for c in chars])
 
 
+def assemble_reference_prompt(char: dict, kind: str, art_style: str) -> str:
+    """Build a standalone reference-image prompt for one character.
+
+    kind="photoreal": reads as a real studio photograph — deliberately carries
+    NO art-style words so the person never picks up a 2D/cartoon look.
+    kind="cartoon": a flat 2D character sheet in the chosen STYLE_PHRASES look.
+    The reference is generated with no context images so characters never blend.
+    """
+    description = _clause(compose_character_description(char))
+
+    if kind == "photoreal":
+        return (
+            "A photorealistic, high-resolution full-body studio photograph of "
+            f"{description}. Natural lighting, plain neutral background, sharp focus, "
+            "neutral friendly expression, looking at the camera. "
+            "This is a real photograph of a real person. "
+            "No text or words in the image."
+        )
+
+    phrases = STYLE_PHRASES.get(art_style.lower().strip(), STYLE_PHRASES[DEFAULT_STYLE])
+    return (
+        f"A {phrases['world_phrase']} character reference of {description}. "
+        "Full body, front view, plain background. "
+        f"{phrases['style_closer']}. "
+        "No text or words in the image."
+    )
+
+
 def assemble_mixed_media_prompt(
     scene: dict,
     photoreal_characters: str,
