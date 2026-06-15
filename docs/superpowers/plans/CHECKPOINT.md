@@ -1,32 +1,38 @@
-# Execution Checkpoint — Mixed-Media Stories + Provider/Model Selection
+# Execution Checkpoint — Character Reference Images + Structured Multi-Character UI
 
-**Plan:** [2026-06-12-mixed-media-model-selection.md](2026-06-12-mixed-media-model-selection.md)
-**Spec:** [../specs/2026-06-12-mixed-media-model-selection-design.md](../specs/2026-06-12-mixed-media-model-selection-design.md)
+**Plan:** `~/.claude/plans/fizzy-splashing-truffle.md` (approved 2026-06-15)
+**Prior feature plan:** [2026-06-12-mixed-media-model-selection.md](2026-06-12-mixed-media-model-selection.md)
 **Branch:** `feat/face-swap`
-**Last updated:** 2026-06-12 (after Task 7 — all build tasks done)
+**Last updated:** 2026-06-15 (after Task 1)
 
-## Done
+## Testing findings (E2E round 1 — manual, by user)
 
-- Design spec written, approved, committed (`d28e61a`)
-- Implementation plan written, self-reviewed, committed (`f0e080b`)
-- **Task 1: Test infrastructure** — pytest 9.0.3 added + installed (`b53ee03`), verified
-- **Task 2: Provider abstraction** — `providers.py` + 6 tests (`8c0e8f1`); spec review ✅, quality review ✅ (no fixes needed)
-- **Task 3: Prompt assembly** — `prompt_assembly.py` + 14 tests (`609d918`, polish `f3ea289`); spec review ✅, quality review ✅ (minor docstring + None test applied). Suite: 20 passed
+1. **Gemini Flash is poor at photorealistic generation** — unusable for photoreal characters.
+2. **Pro + "2D flat vector" = excellent** — characters held across all 5 images, unnoticeable drift.
+3. **Pro + "Watercolor" = heavy drift** — characters in images 4 & 5 completely different from 1–3. Root cause: the sliding window propagates drift (each page conditioned on already-drifted previous pages → error compounds).
+4. **Classic-mode regression works well.**
 
-- **Task 4: Provider threading** — `config.py` + `image_generator.py` (`bf145ee`, polish `7c9ac4f`); spec review ✅, quality review ✅. ⚠️ app.py call site intentionally stale until Task 6 — branch not runnable until then.
+These motivate the current feature: per-character **reference images** attached to every scene as a stable appearance anchor, plus a structured multi-character UI. Locked decisions: refs + 2-page window (belt & suspenders); generate refs for photoreal **and** cartoon; mixed-media defaults to Pro (Flash still selectable).
 
-- **Task 5: Mixed-media story generation** — `story_generator.py` + 10 tests (`b54a718`, polish `40665c3` adds null-field hardening); spec review ✅, quality review ✅. Suite: 30 passed
+## Prior feature (mixed-media + provider/model selection) — DONE & validated
 
-- **Task 6: Flask wiring** — `app.py` (`547e08e`); spec review ✅, quality review ✅ (no fixes). Stale call site fixed — app runnable again. 30 tests green.
+Tasks 1–7 built, reviewed, committed (`f0e080b`..`2faf7fb`); manual E2E performed by user (findings above). Base mixed-media mode works on Pro.
 
-- **Task 7: Frontend** — `templates/index.html` (`a9a5f8f`); spec review ✅, quality review ✅ (no fixes). Note for E2E: art-style auto-select on Mixed Media check is one-directional (unchecking doesn't restore previous style — by design)
+## Done (this feature)
 
-- **Final whole-branch review** ✅ — "Ready for manual E2E + merge: Yes (after Task 8)". No critical/important issues. 30 tests green. Minor notes: mixed-media user prompt omits art_style (by design — watch pixel/pencil coherence in E2E); mixed validation stricter than spec (intentional); one-directional art-style auto-select (by design).
+- **Task 1: Composition helpers** — `prompt_assembly.py`: `compose_character_description`, `character_label`, `join_labels` + 15 tests (`tests/test_character_composition.py`). Commit `287fcfb`. Full suite: 45 passed.
 
 ## Next
 
-- **Task 8: Manual E2E validation** — user deferred ("not now", 2026-06-12). When resuming: start `venv\Scripts\python app.py`, generate (1) classic regression book, (2) mixed-media on Flash, (3) mixed-media on Pro; verify story.json image_prompts start with "A mixed media children's book illustration collage."; spot-check 400s. Costs ~$1–2 CAD, needs GEMINI_API_KEY in .env.
+- **Task 2: Reference prompt** — `assemble_reference_prompt(char, kind, art_style)` in `prompt_assembly.py` (photoreal = real-photo wording, no style words; cartoon = STYLE_PHRASES world_phrase/style_closer) + tests.
 
 ## Pending
 
-- (after Task 8) finishing-a-development-branch: merge/PR decision; branch not yet pushed to origin
+- Task 3: rewrite `assemble_mixed_media_prompt` for character arrays + reference-instruction sentence (rewrite `tests/test_prompt_assembly.py`).
+- Task 4: `generate_reference_images` (no-context, `refs/`, no caption) in `image_generator.py`.
+- Task 5: thread `reference_paths` into `generate_all_images` / `_generate_with_context` (refs first, then 2-page window); classic unchanged.
+- Task 6: `story_generator.py` → arrays + rewritten `MIXED_MEDIA_SYSTEM_PROMPT` (action-by-name, appearance fixed by refs).
+- Task 7: `app.py` → parse arrays, validate ≥1 photoreal + soft cap, orchestrate story→refs→scenes, persist `character_refs`.
+- Task 8: `templates/index.html` → dynamic character cards (dropdowns + large textarea, +/× buttons), `collectCharacters`, Pro default + hint.
+- Task 9: new spec `docs/superpowers/specs/2026-06-15-character-reference-images-design.md`.
+- Task 10: manual E2E (user; needs `GEMINI_API_KEY`; ~$1.4 CAD/book on Pro).
