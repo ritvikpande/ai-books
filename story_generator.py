@@ -2,7 +2,7 @@ import json
 import time
 import logging
 from config import get_client, TEXT_MODEL
-from prompt_assembly import assemble_mixed_media_prompt
+from prompt_assembly import assemble_mixed_media_prompt, compose_character_description
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -39,11 +39,11 @@ Rules:
 MIXED_MEDIA_SYSTEM_PROMPT = """You are a toddler's picture book author.
 Given user inputs, generate a 5-scene story for toddlers aged 2-5.
 
-The book is MIXED MEDIA: the characters listed as "photorealistic characters"
-appear as real photographed people, while everything else (other characters,
-the background world) is flat 2D cartoon. You do NOT write full image prompts —
-you only fill in three visual fields per scene; a fixed template adds all the
-style wording.
+The book is MIXED MEDIA: some characters are real photographed people
+("photorealistic characters") and the rest of the world is flat 2D cartoon.
+Each character's fixed appearance is already locked by a reference image and a
+user-provided description, so you must NOT re-describe how they look. For each
+scene you only write WHAT each character is doing.
 
 Return ONLY valid JSON — no markdown, no code blocks, no extra text.
 
@@ -54,8 +54,8 @@ Format:
     {
       "scene_number": 1,
       "text": "1-2 short sentences for this scene. Simple words, warm and fun tone.",
-      "photoreal_action": "the photorealistic character(s) with consistent physical details (hair, clothing, colors) and what they are doing in this scene",
-      "cartoon_elements": "the cartoon character(s), described as flat 2D cartoon with consistent details, and what they are doing. Empty string if no cartoon characters appear in this scene.",
+      "photoreal_action": "what the photorealistic character(s) are DOING this scene — pose, action, expression, interaction. Refer to them BY NAME. Phrase it so it reads naturally after 'a photograph of ...', e.g. 'Dad kneeling to tie his shoe while Lily watches'. Do NOT mention their hair, skin, clothing, or any art style.",
+      "cartoon_elements": "what the cartoon character(s) are doing, by name. Empty string if no cartoon characters appear in this scene. Do NOT re-describe their fixed appearance.",
       "background": "the background/setting for this scene: place, objects, time of day, plus any incidental cartoon children or animals"
     }
   ]
@@ -64,14 +64,24 @@ Format:
 Rules:
 - Story must have a clear beginning, middle, and end across 5 scenes
 - Keep language simple — short sentences, common words
-- In EVERY scene, describe each character with the SAME physical details (same hair, same clothing, same colors) so they look consistent across all images
-- Do not include art style words like "watercolor" or "vector" in photoreal_action — the photorealistic characters must read as a real photograph
+- Refer to every character BY NAME; their appearance is fixed by the reference images, so describe only their actions and the scene
+- Do not include art style words (like "watercolor" or "vector") anywhere in photoreal_action — the photorealistic characters must read as a real photograph
 - photoreal_action and background must never be empty
 - No scary, violent, or inappropriate content"""
 
 
 CLASSIC_SCENE_KEYS = ("scene_number", "text", "image_prompt")
 MIXED_SCENE_KEYS = ("scene_number", "text", "photoreal_action", "cartoon_elements", "background")
+
+
+def _describe_characters(chars: list) -> list:
+    """Composed, non-empty description line per character (for the LLM prompt)."""
+    return [d for d in (compose_character_description(c) for c in (chars or [])) if d]
+
+
+def _bullets(lines: list) -> str:
+    """Indented bullet list for the user prompt, or a '(none)' placeholder."""
+    return "\n".join(f"  - {line}" for line in lines) if lines else "  - (none)"
 
 
 def _validate_story(story: dict, mixed_media: bool = False) -> None:
@@ -91,14 +101,16 @@ def _validate_story(story: dict, mixed_media: bool = False) -> None:
 
 def generate_story(keywords: str, characters: str, setting: str, story_type: str,
                    art_style: str, mixed_media: bool = False,
-                   photoreal_characters: str = "", cartoon_characters: str = "") -> dict:
+                   photoreal_characters: list = None, cartoon_characters: list = None) -> dict:
     """
     Generate a 5-scene children's story with image prompts.
 
     Classic mode: the LLM writes a complete image_prompt per scene.
-    Mixed-media mode: the LLM writes visual fields (photoreal_action,
-    cartoon_elements, background) and the proven boilerplate template
-    assembles the final image_prompt for each scene.
+    Mixed-media mode: photoreal_characters / cartoon_characters are lists of
+    structured character objects. The LLM writes action-only visual fields
+    (photoreal_action, cartoon_elements, background) referring to characters by
+    name; the boilerplate template assembles the final image_prompt per scene,
+    including the instruction to follow the attached reference images.
 
     Returns a dict with keys: title, scenes (list of 5 scene dicts).
     Every scene has scene_number, text, image_prompt after this function returns.
@@ -109,8 +121,10 @@ def generate_story(keywords: str, characters: str, setting: str, story_type: str
         system_prompt = MIXED_MEDIA_SYSTEM_PROMPT
         user_prompt = f"""Create a toddler's picture book with these inputs:
 - Keywords/interests: {keywords}
-- Photorealistic characters: {photoreal_characters}
-- Cartoon characters: {cartoon_characters or "none"}
+- Photorealistic characters (fixed appearance — refer to them by name):
+{_bullets(_describe_characters(photoreal_characters))}
+- Cartoon characters:
+{_bullets(_describe_characters(cartoon_characters))}
 - Setting: {setting}
 - Story type: {story_type}"""
     else:
@@ -155,7 +169,7 @@ Remember to replace ART_STYLE in every image_prompt with: {art_style}"""
     if mixed_media:
         for scene in story["scenes"]:
             scene["image_prompt"] = assemble_mixed_media_prompt(
-                scene, photoreal_characters, cartoon_characters, art_style
+                scene, photoreal_characters or [], cartoon_characters or [], art_style
             )
 
     logger.info(f"Story generated: '{story['title']}'")
