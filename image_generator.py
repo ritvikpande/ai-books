@@ -89,20 +89,28 @@ def _generate_with_context(
     output_path: str,
     provider,
     model: str,
-    caption_text: str = ""
+    caption_text: str = "",
+    reference_paths: list = None
 ) -> str:
     """
-    Generate one image with optional context images (sliding window).
-    Saves to output_path, applies caption if provided.
-    Returns output_path.
+    Generate one image with optional context images.
+
+    Context order: character reference images FIRST (stable appearance anchor),
+    then the sliding window of previous pages. Saves to output_path, applies
+    caption if provided. Returns output_path.
     """
+    reference_paths = reference_paths or []
     logger.info(f"Generating image: {os.path.basename(output_path)} "
-                f"(model: {model}, context: {len(context_paths)} previous image(s))")
+                f"(model: {model}, refs: {len(reference_paths)}, "
+                f"context: {len(context_paths)} previous image(s))")
     start = time.time()
 
+    context_images = (
+        _load_context_bytes(reference_paths) + _load_context_bytes(context_paths)
+    )
     image_data = provider.generate_image(
         prompt=prompt,
-        context_images=_load_context_bytes(context_paths),
+        context_images=context_images,
         model=model,
     )
 
@@ -182,7 +190,8 @@ def generate_reference_images(
     return records
 
 
-def generate_all_images(story: dict, output_dir: str, provider, model: str) -> list:
+def generate_all_images(story: dict, output_dir: str, provider, model: str,
+                        reference_paths: list = None) -> list:
     """
     Generate all 5 scene images using a sliding window of previous images.
 
@@ -192,6 +201,10 @@ def generate_all_images(story: dict, output_dir: str, provider, model: str) -> l
       Scene 3: [scene_1, scene_2]
       Scene 4: [scene_2, scene_3]
       Scene 5: [scene_3, scene_4]
+
+    reference_paths (mixed-media): character reference images attached to EVERY
+    scene before the window, so characters re-anchor to a stable likeness each
+    page. None/[] (classic mode) keeps the original window-only behavior.
 
     Returns list of saved image paths.
     """
@@ -212,7 +225,8 @@ def generate_all_images(story: dict, output_dir: str, provider, model: str) -> l
             output_path=output_path,
             provider=provider,
             model=model,
-            caption_text=scene["text"]
+            caption_text=scene["text"],
+            reference_paths=reference_paths,
         )
         saved_paths.append(output_path)
 
