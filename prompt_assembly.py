@@ -95,6 +95,28 @@ def join_labels(chars: list) -> str:
     return _join_and([character_label(c) for c in chars])
 
 
+def _reference_instruction(photoreal_characters: list, cartoon_characters: list) -> str:
+    """Tell the model which attached reference image is which character.
+
+    Enumeration order is the reference-ordering invariant: photoreal first, then
+    cartoon — matching how image_generator prepends the reference bytes.
+    """
+    labels = (
+        [character_label(c) for c in photoreal_characters]
+        + [character_label(c) for c in cartoon_characters]
+    )
+    if not labels:
+        return ""
+    mapping = ", ".join(f"reference {i} is {label}" for i, label in enumerate(labels, 1))
+    return (
+        "Use the attached character reference images to keep each character's face, "
+        f"hair, and clothing identical to their reference: {mapping}. "
+        "Only the pose, expression, and action change in this scene. "
+        "Any additional attached images are previous pages of this same book; "
+        "match their overall style."
+    )
+
+
 def assemble_reference_prompt(char: dict, kind: str, art_style: str) -> str:
     """Build a standalone reference-image prompt for one character.
 
@@ -125,17 +147,22 @@ def assemble_reference_prompt(char: dict, kind: str, art_style: str) -> str:
 
 def assemble_mixed_media_prompt(
     scene: dict,
-    photoreal_characters: str,
-    cartoon_characters: str,
+    photoreal_characters: list,
+    cartoon_characters: list,
     art_style: str,
 ) -> str:
     """Wrap the scene's visual fields in the validated mixed-media boilerplate.
 
-    Preconditions: all string args must be non-None, and scene must have passed
-    story_generator._validate_story (guarantees non-empty photoreal_action and
-    background). Only cartoon_elements is optional and may be missing/None/empty.
+    photoreal_characters / cartoon_characters are lists of structured character
+    objects (see compose_character_description). The scene's photoreal_action and
+    cartoon_elements describe ACTION only; each character's fixed appearance comes
+    from the attached reference images, which this prompt instructs the model to
+    follow. Preconditions: scene has passed story_generator._validate_story
+    (non-empty photoreal_action and background); cartoon_elements may be empty.
     """
     phrases = STYLE_PHRASES.get(art_style.lower().strip(), STYLE_PHRASES[DEFAULT_STYLE])
+    photoreal_characters = photoreal_characters or []
+    cartoon_characters = cartoon_characters or []
 
     sentences = [
         "A mixed media children's book illustration collage.",
@@ -156,11 +183,15 @@ def assemble_mixed_media_prompt(
 
     contrast = (
         "There is a distinct, sharp contrast between the photographic real "
-        f"{_clause(photoreal_characters)} and the completely 2D cartoon world"
+        f"{join_labels(photoreal_characters)} and the completely 2D cartoon world"
     )
-    if cartoon_characters.strip():
-        contrast += f" and cartoon {_clause(cartoon_characters)}"
+    if cartoon_characters:
+        contrast += f" and cartoon {join_labels(cartoon_characters)}"
     sentences.append(contrast + ".")
+
+    reference_sentence = _reference_instruction(photoreal_characters, cartoon_characters)
+    if reference_sentence:
+        sentences.append(reference_sentence)
 
     sentences.append(f"{phrases['style_closer']}.")
     sentences.append("No text or words in the image.")

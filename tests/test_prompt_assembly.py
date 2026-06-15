@@ -2,16 +2,24 @@ import pytest
 
 from prompt_assembly import DEFAULT_STYLE, STYLE_PHRASES, assemble_mixed_media_prompt
 
+# photoreal_action / cartoon_elements now describe ACTION only; fixed appearance
+# comes from the attached reference images.
 SCENE = {
     "scene_number": 1,
     "text": "Dad and Lily go to the playground.",
-    "photoreal_action": "a happy adult man (Dad) with short dark hair, jeans and a green sweater, walking breezily and holding hands",
-    "cartoon_elements": "a flat 2D cartoon toddler in a yellow shirt holding Dad's hand",
+    "photoreal_action": "Dad pushing Lily on the swing, both laughing",
+    "cartoon_elements": "Lily kicks her feet up high",
     "background": "a kids playground with beautiful trees and other cartoon children playing",
 }
 
+PHOTOREAL = [{
+    "name": "Dad", "skin_tone": "medium", "hair_color": "dark brown",
+    "body_type": "average", "height": "tall", "description": "green sweater",
+}]
+CARTOON = [{"name": "Lily", "description": "a toddler in a yellow shirt"}]
 
-def _assemble(scene=SCENE, photoreal="a happy adult man (Dad)", cartoon="a toddler",
+
+def _assemble(scene=SCENE, photoreal=PHOTOREAL, cartoon=CARTOON,
               style="2D flat vector cartoon (pastel)"):
     return assemble_mixed_media_prompt(scene, photoreal, cartoon, style)
 
@@ -27,24 +35,47 @@ def test_photoreal_sentence_uses_scene_action():
     prompt = _assemble()
     assert (
         "In the center, a photorealistic, high-resolution photograph of "
-        "a happy adult man (Dad) with short dark hair, jeans and a green sweater, "
-        "walking breezily and holding hands." in prompt
+        "Dad pushing Lily on the swing, both laughing." in prompt
     )
 
 
 def test_contrast_sentence_names_both_character_sets():
     prompt = _assemble()
     assert (
-        "There is a distinct, sharp contrast between the photographic real "
-        "a happy adult man (Dad) and the completely 2D cartoon world and cartoon a toddler."
+        "There is a distinct, sharp contrast between the photographic real Dad "
+        "and the completely 2D cartoon world and cartoon Lily." in prompt
+    )
+
+
+def test_contrast_sentence_with_two_photoreal_characters():
+    prompt = _assemble(photoreal=[{"name": "Dad"}, {"name": "Mom"}], cartoon=[])
+    assert (
+        "the photographic real Dad and Mom and the completely 2D cartoon world."
         in prompt
     )
 
 
 def test_contrast_sentence_without_cartoon_characters():
-    prompt = _assemble(cartoon="")
+    prompt = _assemble(cartoon=[])
     assert "and the completely 2D cartoon world." in prompt
-    assert "and cartoon ." not in prompt
+    assert "cartoon world and cartoon" not in prompt
+
+
+def test_reference_instruction_present_and_enumerates_characters():
+    prompt = _assemble()
+    assert "Use the attached character reference images" in prompt
+    assert "reference 1 is Dad" in prompt
+    assert "reference 2 is Lily" in prompt
+
+
+def test_reference_enumeration_photoreal_before_cartoon():
+    prompt = _assemble(
+        photoreal=[{"name": "Dad"}, {"name": "Mom"}],
+        cartoon=[{"name": "Lily"}],
+    )
+    assert "reference 1 is Dad" in prompt
+    assert "reference 2 is Mom" in prompt
+    assert "reference 3 is Lily" in prompt
 
 
 def test_empty_cartoon_elements_skipped():
