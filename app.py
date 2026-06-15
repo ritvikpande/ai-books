@@ -7,7 +7,7 @@ from io import BytesIO
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 
 from story_generator import generate_story
-from image_generator import generate_all_images, generate_pdf
+from image_generator import generate_all_images, generate_reference_images, generate_pdf
 from config import OUTPUT_DIR, DEFAULT_PROVIDER, DEFAULT_IMAGE_MODEL
 from providers import get_provider, validate_model, providers_meta
 
@@ -15,6 +15,28 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# Structured-character handling (mixed-media mode)
+CHARACTER_FIELDS = ("name", "skin_tone", "hair_color", "body_type", "height", "description")
+MAX_CHARACTERS = 6  # soft cap to bound request size / cost across refs + window
+
+
+def _normalize_characters(raw) -> list:
+    """Coerce a raw JSON character list into clean dicts, dropping empty entries.
+
+    Each result has every CHARACTER_FIELDS key (trimmed string). Non-dict items
+    and characters with no content at all are dropped. Non-list input -> [].
+    """
+    if not isinstance(raw, list):
+        return []
+    result = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        char = {f: str(item.get(f) or "").strip() for f in CHARACTER_FIELDS}
+        if any(char.values()):
+            result.append(char)
+    return result
 
 @app.route('/', methods=['GET'])
 def index():
@@ -42,12 +64,16 @@ def generate():
         return jsonify({"error": str(e)}), 400
 
     mixed_media = bool(data.get('mixed_media'))
-    photoreal_characters = (data.get('photoreal_characters') or '').strip()
-    cartoon_characters = (data.get('cartoon_characters') or '').strip()
+    photoreal_characters = _normalize_characters(data.get('photoreal_characters'))
+    cartoon_characters = _normalize_characters(data.get('cartoon_characters'))
 
     if mixed_media:
-        if not keywords or not setting or not photoreal_characters:
-            return jsonify({"error": "Please fill in Keywords, Setting, and Photorealistic Characters."}), 400
+        if not keywords or not setting:
+            return jsonify({"error": "Please fill in Keywords and Setting."}), 400
+        if not photoreal_characters:
+            return jsonify({"error": "Add at least one photorealistic character."}), 400
+        if len(photoreal_characters) + len(cartoon_characters) > MAX_CHARACTERS:
+            return jsonify({"error": f"Too many characters (max {MAX_CHARACTERS})."}), 400
     else:
         if not keywords or not characters or not setting:
             return jsonify({"error": "Please fill in Keywords, Characters, and Setting."}), 400
@@ -58,6 +84,7 @@ def generate():
 
     try:
         total_start = time.time()
+        provider = get_provider(provider_id)
 
         # Generate story
         story = generate_story(
@@ -71,12 +98,24 @@ def generate():
             cartoon_characters=cartoon_characters,
         )
 
+        # Mixed-media: generate one reference image per character first, then
+        # attach them to every scene so characters stay consistent.
+        reference_paths = None
+        if mixed_media:
+            refs = generate_reference_images(
+                photoreal_characters, cartoon_characters, art_style,
+                story_dir, provider, image_model,
+            )
+            reference_paths = [r["path"] for r in refs]
+            story["character_refs"] = refs
+
         with open(os.path.join(story_dir, "story.json"), "w") as f:
             json.dump(story, f, indent=2)
 
         # Generate all images
         image_paths = generate_all_images(
-            story, story_dir, get_provider(provider_id), image_model
+            story, story_dir, provider, image_model,
+            reference_paths=reference_paths,
         )
 
         total_elapsed = time.time() - total_start
