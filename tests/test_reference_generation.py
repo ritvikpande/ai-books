@@ -68,3 +68,73 @@ def test_prompt_routing_by_kind(tmp_path):
     )
     assert "real person" in provider.calls[0]["prompt"]          # photoreal
     assert "2D watercolor storybook illustration" in provider.calls[1]["prompt"]  # cartoon
+
+
+def test_photo_path_passed_as_context_images(tmp_path):
+    photo_path = tmp_path / "upload.png"
+    photo_path.write_bytes(b"FAKE-UPLOADED-PHOTO-BYTES")
+    provider = FakeProvider()
+    generate_reference_images(
+        [{"name": "Dad", "photo_path": str(photo_path)}], [], STYLE, str(tmp_path), provider, "m",
+    )
+    assert provider.calls[0]["context_images"] == [b"FAKE-UPLOADED-PHOTO-BYTES"]
+
+
+def test_photo_based_prompt_differs_from_no_photo(tmp_path):
+    photo_path = tmp_path / "upload.png"
+    photo_path.write_bytes(b"FAKE-UPLOADED-PHOTO-BYTES")
+    provider = FakeProvider()
+    generate_reference_images(
+        [{"name": "Dad", "photo_path": str(photo_path)}], [], STYLE, str(tmp_path), provider, "m",
+    )
+    generate_reference_images([{"name": "Dad"}], [], STYLE, str(tmp_path), provider, "m")
+    assert provider.calls[0]["prompt"] != provider.calls[1]["prompt"]
+    assert "attached" in provider.calls[0]["prompt"].lower()
+
+
+def test_upload_copy_saved_alongside_reference(tmp_path):
+    photo_path = tmp_path / "upload.png"
+    photo_path.write_bytes(b"FAKE-UPLOADED-PHOTO-BYTES")
+    provider = FakeProvider()
+    records = generate_reference_images(
+        [{"name": "Dad", "photo_path": str(photo_path)}], [], STYLE, str(tmp_path), provider, "m",
+    )
+    refs_dir = os.path.dirname(records[0]["path"])
+    upload_copy = os.path.join(refs_dir, "photoreal_1_upload.png")
+    assert os.path.exists(upload_copy)
+    with open(upload_copy, "rb") as f:
+        assert f.read() == b"FAKE-UPLOADED-PHOTO-BYTES"
+
+
+def test_from_photo_field_in_records(tmp_path):
+    photo_path = tmp_path / "upload.png"
+    photo_path.write_bytes(b"FAKE-UPLOADED-PHOTO-BYTES")
+    provider = FakeProvider()
+    records = generate_reference_images(
+        [{"name": "Dad", "photo_path": str(photo_path)}, {"name": "Mom"}], [],
+        STYLE, str(tmp_path), provider, "m",
+    )
+    assert records[0]["from_photo"] is True
+    assert records[1]["from_photo"] is False
+
+
+def test_missing_photo_path_falls_back_to_no_context(tmp_path):
+    provider = FakeProvider()
+    records = generate_reference_images(
+        [{"name": "Dad", "photo_path": str(tmp_path / "does_not_exist.png")}], [],
+        STYLE, str(tmp_path), provider, "m",
+    )
+    assert provider.calls[0]["context_images"] == []
+    assert records[0]["from_photo"] is False
+
+
+def test_cartoon_character_with_photo_path_ignored(tmp_path):
+    photo_path = tmp_path / "upload.png"
+    photo_path.write_bytes(b"FAKE-UPLOADED-PHOTO-BYTES")
+    provider = FakeProvider()
+    records = generate_reference_images(
+        [], [{"name": "Lily", "photo_path": str(photo_path)}],
+        STYLE, str(tmp_path), provider, "m",
+    )
+    assert provider.calls[0]["context_images"] == []
+    assert records[0]["from_photo"] is False
