@@ -63,6 +63,35 @@ def test_cartoon_every_style_produces_its_phrases(style_key):
     assert STYLE_PHRASES[style_key]["style_closer"] in p
 
 
+# --- has_photo (face-preservation) -------------------------------------------
+
+def test_photoreal_with_photo_includes_face_preservation_language():
+    p = assemble_reference_prompt(CHAR, "photoreal", "watercolor storybook illustration", has_photo=True)
+    low = p.lower()
+    assert "attached photo" in low
+    assert "exact face and identity" in low
+    assert "Dad" in p
+
+
+def test_photoreal_without_photo_unchanged():
+    p = assemble_reference_prompt(CHAR, "photoreal", "watercolor storybook illustration")
+    assert p == (
+        "A photorealistic, high-resolution full-body studio photograph of "
+        "Dad: tall height, medium skin tone, dark brown hair, average build, green sweater, blue jeans. "
+        "Natural lighting, plain neutral background, sharp focus, "
+        "neutral friendly expression, looking at the camera. "
+        "This is a real photograph of a real person. "
+        "No text or words in the image."
+    )
+
+
+def test_cartoon_ignores_has_photo():
+    style = "watercolor storybook illustration"
+    without_photo = assemble_reference_prompt(CHAR, "cartoon", style, has_photo=False)
+    with_photo = assemble_reference_prompt(CHAR, "cartoon", style, has_photo=True)
+    assert with_photo == without_photo
+
+
 # --- shared -----------------------------------------------------------------
 
 def test_no_double_period_when_description_ends_with_period():

@@ -117,17 +117,31 @@ def _reference_instruction(photoreal_characters: list, cartoon_characters: list)
     )
 
 
-def assemble_reference_prompt(char: dict, kind: str, art_style: str) -> str:
+def assemble_reference_prompt(char: dict, kind: str, art_style: str, has_photo: bool = False) -> str:
     """Build a standalone reference-image prompt for one character.
 
     kind="photoreal": reads as a real studio photograph — deliberately carries
     NO art-style words so the person never picks up a 2D/cartoon look.
     kind="cartoon": a flat 2D character sheet in the chosen STYLE_PHRASES look.
     The reference is generated with no context images so characters never blend.
+    has_photo=True (photoreal only): an uploaded photo is being passed as a
+    context image, so the prompt asks Gemini to preserve that face/identity
+    instead of inventing one from the description.
     """
     description = _clause(compose_character_description(char))
 
     if kind == "photoreal":
+        if has_photo:
+            return (
+                "Using the exact face and identity of the person in the attached "
+                "photo — same facial features, skin tone, and likeness, face "
+                "unchanged from the photo — generate a photorealistic, "
+                f"high-resolution full-body studio photograph of {description}. "
+                "Natural lighting, plain neutral background, sharp focus, "
+                "neutral friendly expression, looking at the camera. "
+                "This is a real photograph of a real person. "
+                "No text or words in the image."
+            )
         return (
             "A photorealistic, high-resolution full-body studio photograph of "
             f"{description}. Natural lighting, plain neutral background, sharp focus, "
