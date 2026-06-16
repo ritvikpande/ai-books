@@ -18,6 +18,17 @@ def _story():
     }
 
 
+# --- index renders the structured-character UI ------------------------------
+
+def test_index_renders_character_ui(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    for token in ("photorealCharacterList", "cartoonCharacterList",
+                  "addPhotorealBtn", "addCartoonBtn", "proHint"):
+        assert token in body
+
+
 # --- _normalize_characters (pure) -------------------------------------------
 
 def test_normalize_drops_empty_and_trims():

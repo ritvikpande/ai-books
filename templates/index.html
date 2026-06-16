@@ -36,11 +36,14 @@
                     <div class="d-none" id="mixedMediaFields">
                         <div class="mb-3">
                             <label class="form-label">Photorealistic Characters</label>
-                            <input type="text" class="form-control" id="photoreal_characters" placeholder="e.g. a happy adult man (Dad)">
+                            <small class="text-muted d-block mb-1">Describe each real-photo character. A reference image is generated per character to keep them consistent.</small>
+                            <div id="photorealCharacterList"></div>
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100" id="addPhotorealBtn">+ Add photorealistic character</button>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Cartoon Characters <small class="text-muted">(optional)</small></label>
-                            <input type="text" class="form-control" id="cartoon_characters" placeholder="e.g. a toddler">
+                            <div id="cartoonCharacterList"></div>
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100" id="addCartoonBtn">+ Add cartoon character</button>
                         </div>
                     </div>
                     <div class="mb-3">
@@ -81,6 +84,7 @@
                             <option value="{{ m.id }}" {% if m.id == default_image_model %}selected{% endif %}>{{ m.label }}</option>
                             {% endfor %}
                         </select>
+                        <small id="proHint" class="text-muted d-none">Pro recommended — Flash is weak at photorealistic characters.</small>
                     </div>
                     <button type="submit" class="btn btn-primary w-100" id="generateBtn">Generate Story</button>
                 </form>
@@ -116,16 +120,79 @@
         let currentStoryData = null;
 
         const PROVIDER_MODELS = {{ providers | tojson }};
+        const DEFAULT_IMAGE_MODEL = {{ default_image_model | tojson }};
 
-        // Mixed Media toggle: swap character fields, preselect the proven style
+        // Dropdown vocab for structured characters (blank first option = unspecified)
+        const SKIN_TONES = ["very fair","fair","light","medium","tan","olive","brown","dark brown","deep"];
+        const HAIR_COLORS = ["black","dark brown","brown","light brown","blonde","red/ginger","gray","white","bald"];
+        const BODY_TYPES = ["slim","average","athletic","curvy","heavyset"];
+        const HEIGHTS = ["short","average","tall"];
+
+        function selectHTML(cls, placeholder, options) {
+            const opts = ['<option value="">' + placeholder + '</option>']
+                .concat(options.map(o => '<option value="' + o + '">' + o + '</option>'));
+            return '<select class="form-select form-select-sm ' + cls + '">' + opts.join('') + '</select>';
+        }
+
+        // Build one character card (static markup; no user data interpolated here).
+        function addCharacterCard(listId) {
+            const list = document.getElementById(listId);
+            const card = document.createElement('div');
+            card.className = 'card mb-2 character-card';
+            card.innerHTML =
+                '<div class="card-body p-2">' +
+                  '<div class="d-flex mb-2">' +
+                    '<input type="text" class="form-control form-control-sm field-name" placeholder="Name (e.g. Dad)">' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger ms-2 remove-character" title="Remove">&times;</button>' +
+                  '</div>' +
+                  '<div class="row g-1 mb-2">' +
+                    '<div class="col-6">' + selectHTML('field-skin-tone', 'Skin tone…', SKIN_TONES) + '</div>' +
+                    '<div class="col-6">' + selectHTML('field-hair-color', 'Hair color…', HAIR_COLORS) + '</div>' +
+                    '<div class="col-6">' + selectHTML('field-body-type', 'Body type…', BODY_TYPES) + '</div>' +
+                    '<div class="col-6">' + selectHTML('field-height', 'Height…', HEIGHTS) + '</div>' +
+                  '</div>' +
+                  '<textarea class="form-control form-control-sm field-description" rows="4" ' +
+                    'placeholder="Anything else — clothing, age, glasses, accessories…"></textarea>' +
+                '</div>';
+            card.querySelector('.remove-character').addEventListener('click', () => card.remove());
+            list.appendChild(card);
+            return card;
+        }
+
+        // Read a character list into an array of objects, dropping fully-empty cards.
+        function collectCharacters(listId) {
+            return [...document.querySelectorAll('#' + listId + ' .character-card')].map(card => ({
+                name: card.querySelector('.field-name').value.trim(),
+                skin_tone: card.querySelector('.field-skin-tone').value,
+                hair_color: card.querySelector('.field-hair-color').value,
+                body_type: card.querySelector('.field-body-type').value,
+                height: card.querySelector('.field-height').value,
+                description: card.querySelector('.field-description').value.trim(),
+            })).filter(c => c.name || c.description || c.skin_tone || c.hair_color || c.body_type || c.height);
+        }
+
+        document.getElementById('addPhotorealBtn').addEventListener('click', () => addCharacterCard('photorealCharacterList'));
+        document.getElementById('addCartoonBtn').addEventListener('click', () => addCharacterCard('cartoonCharacterList'));
+
+        // Mixed Media toggle: swap character fields, preselect the proven style,
+        // default to Pro (Flash is weak at photoreal), and seed one character card.
         document.getElementById('mixed_media').addEventListener('change', (e) => {
             const mixed = e.target.checked;
             document.getElementById('classicCharactersField').classList.toggle('d-none', mixed);
             document.getElementById('mixedMediaFields').classList.toggle('d-none', !mixed);
             document.getElementById('characters').required = !mixed;
-            document.getElementById('photoreal_characters').required = mixed;
+            const modelSelect = document.getElementById('image_model');
+            const proHint = document.getElementById('proHint');
             if (mixed) {
                 document.getElementById('art_style').value = '2D flat vector cartoon (pastel)';
+                modelSelect.value = 'gemini-3-pro-image-preview';
+                proHint.classList.remove('d-none');
+                if (document.querySelectorAll('#photorealCharacterList .character-card').length === 0) {
+                    addCharacterCard('photorealCharacterList');
+                }
+            } else {
+                modelSelect.value = DEFAULT_IMAGE_MODEL;
+                proHint.classList.add('d-none');
             }
         });
 
@@ -150,6 +217,7 @@
             document.getElementById('errorDiv').classList.add('d-none');
             document.getElementById('generateBtn').disabled = true;
 
+            const mixedMedia = document.getElementById('mixed_media').checked;
             const payload = {
                 keywords: document.getElementById('keywords').value,
                 characters: document.getElementById('characters').value,
@@ -158,10 +226,18 @@
                 art_style: document.getElementById('art_style').value,
                 provider: document.getElementById('provider').value,
                 image_model: document.getElementById('image_model').value,
-                mixed_media: document.getElementById('mixed_media').checked,
-                photoreal_characters: document.getElementById('photoreal_characters').value,
-                cartoon_characters: document.getElementById('cartoon_characters').value
+                mixed_media: mixedMedia,
+                photoreal_characters: mixedMedia ? collectCharacters('photorealCharacterList') : [],
+                cartoon_characters: mixedMedia ? collectCharacters('cartoonCharacterList') : []
             };
+
+            if (mixedMedia && payload.photoreal_characters.length === 0) {
+                document.getElementById('loadingDiv').classList.add('d-none');
+                document.getElementById('errorDiv').textContent = 'Add at least one photorealistic character (a name or some details).';
+                document.getElementById('errorDiv').classList.remove('d-none');
+                document.getElementById('generateBtn').disabled = false;
+                return;
+            }
 
             try {
                 const response = await fetch('/generate', {
