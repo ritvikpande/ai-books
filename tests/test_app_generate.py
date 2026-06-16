@@ -38,12 +38,30 @@ def test_normalize_drops_empty_and_trims():
         "not-a-dict",                          # ignored
     ])
     assert out == [{"name": "Dad", "skin_tone": "", "hair_color": "brown",
-                    "body_type": "", "height": "", "description": ""}]
+                    "body_type": "", "height": "", "description": "", "photo_path": ""}]
 
 
 def test_normalize_non_list_returns_empty():
     assert app_module._normalize_characters(None) == []
     assert app_module._normalize_characters("Dad") == []
+
+
+def test_normalize_carries_photo_path_through():
+    out = app_module._normalize_characters([
+        {"name": "Dad", "photo_path": "outputs/_uploads/abc123.png"},
+    ])
+    assert out == [{"name": "Dad", "skin_tone": "", "hair_color": "",
+                    "body_type": "", "height": "", "description": "",
+                    "photo_path": "outputs/_uploads/abc123.png"}]
+
+
+def test_normalize_keeps_photo_only_character():
+    out = app_module._normalize_characters([
+        {"name": "", "photo_path": "outputs/_uploads/abc123.png"},
+    ])
+    assert len(out) == 1
+    assert out[0]["photo_path"] == "outputs/_uploads/abc123.png"
+    assert out[0]["name"] == ""
 
 
 # --- validation -------------------------------------------------------------

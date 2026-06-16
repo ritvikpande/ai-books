@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Structured-character handling (mixed-media mode)
-CHARACTER_FIELDS = ("name", "skin_tone", "hair_color", "body_type", "height", "description")
+CHARACTER_FIELDS = ("name", "skin_tone", "hair_color", "body_type", "height",
+                    "description", "photo_path")
 MAX_CHARACTERS = 6  # soft cap to bound request size / cost across refs + window
 
 
