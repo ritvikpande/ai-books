@@ -3,7 +3,7 @@
 **Plan:** `~/.claude/plans/fizzy-splashing-truffle.md` (approved 2026-06-15)
 **Prior feature plan:** [2026-06-12-mixed-media-model-selection.md](2026-06-12-mixed-media-model-selection.md)
 **Branch:** `feat/face-swap`
-**Last updated:** 2026-06-15 (after Task 8)
+**Last updated:** 2026-06-15 (after Task 9 — all build tasks done)
 
 ## Testing findings (E2E round 1 — manual, by user)
 
@@ -29,10 +29,19 @@ Tasks 1–7 built, reviewed, committed (`f0e080b`..`2faf7fb`); manual E2E perfor
 - **Task 6: Story generation → arrays** — `generate_story(..., photoreal_characters: list, cartoon_characters: list)`; mixed user prompt lists characters via `_describe_characters` (uses `compose_character_description`); `MIXED_MEDIA_SYSTEM_PROMPT` rewritten to action-by-name (appearance fixed by refs — old "repeat physical details" rule deleted); assembler now receives arrays. `_validate_story` unchanged. Tests (4) in `tests/test_story_prompt.py`. Full suite: 71 passed.
 - **Task 7: Flask wiring** — `app.py`: `_normalize_characters` (drop empties, trim), parse photoreal/cartoon as **lists**, validate (≥1 photoreal → 400, soft cap `MAX_CHARACTERS=6` → 400), orchestrate story → `generate_reference_images` → `generate_all_images(reference_paths=...)`, persist `character_refs` in story.json. Classic path unchanged (no refs, `reference_paths=None`). `test_client` tests (7) in `tests/test_app_generate.py`. Full suite: 78 passed. **Backend now runnable end-to-end for both modes.**
 - **Task 8: Frontend** — `templates/index.html`: dynamic character cards (`#photorealCharacterList`/`#cartoonCharacterList`, `+ Add` buttons, per-card name + 4 dropdowns + large `rows=4` textarea + `×` remove); `selectHTML`/`addCharacterCard`/`collectCharacters` (per-card `.field-*` querySelectors, no global IDs). Mixed-Media toggle seeds one photoreal card, auto-selects 2D-flat-vector + Pro model, shows `#proHint`; restores Flash when off. Submit sends arrays (`[]` in classic) + JS guard for ≥1 photoreal. Render smoke test added (now 8 in `test_app_generate.py`). Full suite: 79 passed. Note: all cards removable; ≥1 photoreal enforced at submit + backend (not by locking the first card).
+- **Task 9: Docs** — new spec `docs/superpowers/specs/2026-06-15-character-reference-images-design.md` (findings, locked decisions, data model, reference-ordering invariant, architecture, cost, testing). Findings already recorded in this file (top).
 
-## Next
+## Next — Task 10: Manual E2E (USER runs; needs `GEMINI_API_KEY`; ~$1.4 CAD/book on Pro)
 
-- **Task 9:** new spec `docs/superpowers/specs/2026-06-15-character-reference-images-design.md`.
+All 9 build tasks complete; **79 unit tests green**; branch runnable end-to-end. Steps:
+1. `venv\Scripts\python app.py` → http://localhost:5000
+2. **Classic regression:** Mixed Media off, defaults → 5 watercolor scenes + PDF.
+3. **Mixed-media, Pro, 2D flat vector:** add 1 photoreal (Dad, dropdowns + details) + 1 cartoon (toddler) → check `outputs/story_<ts>/refs/` has both reference images; confirm each scene log shows `refs: N` (refs attached to scene 1 too); characters consistent across all 5 pages; `story.json` has `character_refs` and image_prompts contain "Use the attached character reference images".
+4. **Mixed-media, Pro, Watercolor:** same inputs → confirm scene 4/5 drift is gone (the core fix).
+5. **Two photoreal characters:** Dad + Mom stay consistent and distinct.
+6. **Validation:** mixed-media with zero photoreal → 400; `provider:"openai"` → 400.
+7. Record results here; commit any prompt tuning.
 
-## Pending
-- Task 10: manual E2E (user; needs `GEMINI_API_KEY`; ~$1.4 CAD/book on Pro).
+## Pending (after Task 10)
+- finishing-a-development-branch: push `feat/face-swap` to origin, open PR to main (branch not yet pushed).
+- Optional: update stale `TECHNICAL_OVERVIEW.md` (still describes the Streamlit version).
