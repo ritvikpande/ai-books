@@ -345,7 +345,9 @@
                 document.getElementById('errorDiv').textContent = err.message;
                 document.getElementById('errorDiv').classList.remove('d-none');
             } finally {
-                document.getElementById('generateBtn').disabled = false;
+                if (pendingUploads === 0) {
+                    document.getElementById('generateBtn').disabled = false;
+                }
             }
         });
 
