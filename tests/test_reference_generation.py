@@ -43,8 +43,9 @@ def test_saved_under_refs_dir(tmp_path):
 
 def test_no_context_images_passed(tmp_path):
     provider = FakeProvider()
-    generate_reference_images([{"name": "Dad"}], [], STYLE, str(tmp_path), provider, "m")
+    records = generate_reference_images([{"name": "Dad"}], [], STYLE, str(tmp_path), provider, "m")
     assert provider.calls[0]["context_images"] == []
+    assert records[0]["from_photo"] is False
 
 
 def test_cartoon_skipped_when_empty(tmp_path):
