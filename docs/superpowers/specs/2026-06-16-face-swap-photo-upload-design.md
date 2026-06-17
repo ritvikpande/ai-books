@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-16
 **Branch:** `feat/face-swap`
-**Status:** Approved by Ritvik (2026-06-16); implementation pending
+**Status:** Implemented (Tasks 1–6); pending manual E2E (Task 7)
 **Builds on:** [2026-06-15-character-reference-images-design.md](2026-06-15-character-reference-images-design.md)
 
 ## Motivation
