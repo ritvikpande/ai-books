@@ -118,6 +118,7 @@
 
     <script>
         let currentStoryData = null;
+        let pendingUploads = 0;
 
         const PROVIDER_MODELS = {{ providers | tojson }};
         const DEFAULT_IMAGE_MODEL = {{ default_image_model | tojson }};
@@ -134,8 +135,66 @@
             return '<select class="form-select form-select-sm ' + cls + '">' + opts.join('') + '</select>';
         }
 
+        // Photoreal-only photo upload block: file input + thumbnail + hidden path.
+        function photoUploadHTML() {
+            return (
+                '<div class="mb-2">' +
+                  '<input type="file" class="form-control form-control-sm field-photo-input" accept=".png,.jpg,.jpeg">' +
+                  '<img class="img-thumbnail mt-1 d-none field-photo-thumb" style="max-height:80px;">' +
+                  '<small class="text-muted d-block field-photo-status"></small>' +
+                  '<input type="hidden" class="field-photo-path" value="">' +
+                '</div>'
+            );
+        }
+
+        // Wire a photoreal card's file input: upload immediately on selection,
+        // show a thumbnail preview, and stash the server-assigned path for submit.
+        function attachPhotoUploadHandler(card) {
+            const input = card.querySelector('.field-photo-input');
+            const thumb = card.querySelector('.field-photo-thumb');
+            const status = card.querySelector('.field-photo-status');
+            const pathField = card.querySelector('.field-photo-path');
+
+            input.addEventListener('change', async () => {
+                const file = input.files[0];
+                pathField.value = '';
+                if (!file) {
+                    thumb.classList.add('d-none');
+                    status.textContent = '';
+                    return;
+                }
+
+                thumb.src = URL.createObjectURL(file);
+                thumb.classList.remove('d-none');
+                status.textContent = 'Uploading…';
+
+                pendingUploads++;
+                document.getElementById('generateBtn').disabled = true;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('photo', file);
+                    const response = await fetch('/upload_photo', { method: 'POST', body: formData });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Upload failed');
+                    pathField.value = data.photo_path;
+                    status.textContent = 'Photo attached.';
+                } catch (err) {
+                    status.textContent = err.message;
+                } finally {
+                    pendingUploads--;
+                    if (pendingUploads === 0) {
+                        document.getElementById('generateBtn').disabled = false;
+                    }
+                }
+            });
+        }
+
         // Build one character card (static markup; no user data interpolated here).
+        // Photo upload UI is only added for photoreal cards (cartoon characters never
+        // get an upload widget).
         function addCharacterCard(listId) {
+            const isPhotoreal = listId === 'photorealCharacterList';
             const list = document.getElementById(listId);
             const card = document.createElement('div');
             card.className = 'card mb-2 character-card';
@@ -145,6 +204,7 @@
                     '<input type="text" class="form-control form-control-sm field-name" placeholder="Name (e.g. Dad)">' +
                     '<button type="button" class="btn btn-sm btn-outline-danger ms-2 remove-character" title="Remove">&times;</button>' +
                   '</div>' +
+                  (isPhotoreal ? photoUploadHTML() : '') +
                   '<div class="row g-1 mb-2">' +
                     '<div class="col-6">' + selectHTML('field-skin-tone', 'Skin tone…', SKIN_TONES) + '</div>' +
                     '<div class="col-6">' + selectHTML('field-hair-color', 'Hair color…', HAIR_COLORS) + '</div>' +
@@ -155,20 +215,27 @@
                     'placeholder="Anything else — clothing, age, glasses, accessories…"></textarea>' +
                 '</div>';
             card.querySelector('.remove-character').addEventListener('click', () => card.remove());
+            if (isPhotoreal) {
+                attachPhotoUploadHandler(card);
+            }
             list.appendChild(card);
             return card;
         }
 
         // Read a character list into an array of objects, dropping fully-empty cards.
         function collectCharacters(listId) {
-            return [...document.querySelectorAll('#' + listId + ' .character-card')].map(card => ({
-                name: card.querySelector('.field-name').value.trim(),
-                skin_tone: card.querySelector('.field-skin-tone').value,
-                hair_color: card.querySelector('.field-hair-color').value,
-                body_type: card.querySelector('.field-body-type').value,
-                height: card.querySelector('.field-height').value,
-                description: card.querySelector('.field-description').value.trim(),
-            })).filter(c => c.name || c.description || c.skin_tone || c.hair_color || c.body_type || c.height);
+            return [...document.querySelectorAll('#' + listId + ' .character-card')].map(card => {
+                const photoField = card.querySelector('.field-photo-path');
+                return {
+                    name: card.querySelector('.field-name').value.trim(),
+                    skin_tone: card.querySelector('.field-skin-tone').value,
+                    hair_color: card.querySelector('.field-hair-color').value,
+                    body_type: card.querySelector('.field-body-type').value,
+                    height: card.querySelector('.field-height').value,
+                    description: card.querySelector('.field-description').value.trim(),
+                    photo_path: photoField ? photoField.value : '',
+                };
+            }).filter(c => c.name || c.description || c.skin_tone || c.hair_color || c.body_type || c.height || c.photo_path);
         }
 
         document.getElementById('addPhotorealBtn').addEventListener('click', () => addCharacterCard('photorealCharacterList'));
