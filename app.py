@@ -92,6 +92,7 @@ def upload_photo():
         return jsonify({"error": "Could not process photo."}), 500
     return jsonify({"photo_path": path})
 
+
 @app.route('/', methods=['GET'])
 def index():
     return render_template(
