@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-16
 **Branch:** `feat/face-swap`
-**Status:** Implemented (Tasks 1–6); pending manual E2E (Task 7)
+**Status:** Implemented and manually E2E-tested (2026-06-17). Face-swap quality on Gemini 3 Pro was excellent. Two follow-ups from E2E: (1) a white sticker/cutout border around characters was fixed by removing "collage" prompt wording; (2) measured cost was CAD 3.53 for a 5-page book — over the POC ceiling (see Cost).
 **Builds on:** [2026-06-15-character-reference-images-design.md](2026-06-15-character-reference-images-design.md)
 
 ## Motivation
@@ -114,6 +114,14 @@ exactly one image-generation call, same as a text-only reference — this was th
 the combined single-call approach was chosen over a two-step generate-then-swap
 alternative (which would have added a second image-gen call, ~$0.06–0.45 CAD/book, per
 photo character).
+
+**Measured (2026-06-17):** an actual 5-page mixed-media book with face-swap on Gemini 3
+Pro Image cost **CAD 3.53** — over the project's $3 POC ceiling and well above the early
+~$0.90/book estimate. The combined-call approach kept this feature from making it
+*worse*, but the underlying mixed-media cost (one Pro reference per character + 5 Pro
+scene images) is the real driver. **This does not scale at the current per-book cost.**
+Cost reduction (cheaper model for non-face steps, fewer/reused reference calls, or fewer
+scene images) is the main open problem before scaling — quality on Pro is not the issue.
 
 ## Risks
 

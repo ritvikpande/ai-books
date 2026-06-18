@@ -70,6 +70,8 @@ for each scene:  context = [reference bytes…] + [≤2 previous pages]  →  sc
 
 Each mixed-media book adds N reference images (one per character) before the 5 scenes. On Pro: ~3 characters ⇒ ~8 images ⇒ ~$1.4 CAD/book. The `MAX_CHARACTERS=6` cap bounds request size and cost.
 
+**Measured (2026-06-17, face-swap E2E):** an actual 5-page mixed-media book cost **CAD 3.53** on Gemini 3 Pro Image — higher than this ~$1.4 estimate. The per-book cost on Pro does not scale; reducing it (cheaper model for non-face steps, fewer/reused reference calls, fewer scene images) is the main open problem before any scale-up.
+
 ## Testing
 
 49 new/changed unit tests (composition, reference prompt, mixed-media prompt rewrite, reference generation via fake provider, scene-context ordering, story prompt, Flask `test_client` validation/threading, render smoke). Full suite green. Reference/scene **image generation** itself is validated by manual E2E (Task 10); it is the only API-spending step.

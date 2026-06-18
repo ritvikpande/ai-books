@@ -61,7 +61,10 @@ gcloud run deploy storybook-app \
 
 - `config.py` - API client setup, constants
 - `story_generator.py` - Story text and image prompt generation via Gemini
-- `image_generator.py` - Image generation with sliding-window context
-- `app.py` - Flask backend (routes: `/`, `/generate`, `/images`, `/download_pdf`)
+- `prompt_assembly.py` - Pure helpers that assemble mixed-media and character-reference image prompts
+- `image_generator.py` - Image generation with sliding-window context + per-character reference images
+- `app.py` - Flask backend (routes: `/`, `/generate`, `/upload_photo`, `/images`, `/download_pdf`)
 - `templates/index.html` - Frontend UI
 - `Dockerfile` - Container image (gunicorn on port 5000)
+
+> **Cost note (measured 2026-06-17):** a 5-page mixed-media book with face-swap on Gemini 3 Pro Image cost ~CAD 3.53 — over the POC's $3 ceiling. The per-book cost on Pro does not scale; cost reduction is the main open problem before scaling. See `.claude/CLAUDE.md` → Cost Estimate.
