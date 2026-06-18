@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-16
 **Branch:** `feat/face-swap`
-**Status:** Implemented and manually E2E-tested (2026-06-17). Face-swap quality on Gemini 3 Pro was excellent. Two follow-ups from E2E: (1) a white sticker/cutout border around characters was fixed by removing "collage" prompt wording; (2) measured cost was CAD 3.53 for a 5-page book — over the POC ceiling (see Cost).
+**Status:** Implemented and manually E2E-tested (2026-06-17). Face-swap quality on Gemini 3 Pro was excellent. Two follow-ups from E2E: (1) a white sticker/cutout border around characters was fixed by removing "collage" prompt wording; (2) measured cost was ~CAD 3.5–3.8 for a 5-page book — over the POC ceiling (see Cost).
 **Builds on:** [2026-06-15-character-reference-images-design.md](2026-06-15-character-reference-images-design.md)
 
 ## Motivation
@@ -116,12 +116,16 @@ alternative (which would have added a second image-gen call, ~$0.06–0.45 CAD/b
 photo character).
 
 **Measured (2026-06-17):** an actual 5-page mixed-media book with face-swap on Gemini 3
-Pro Image cost **CAD 3.53** — over the project's $3 POC ceiling and well above the early
-~$0.90/book estimate. The combined-call approach kept this feature from making it
-*worse*, but the underlying mixed-media cost (one Pro reference per character + 5 Pro
-scene images) is the real driver. **This does not scale at the current per-book cost.**
-Cost reduction (cheaper model for non-face steps, fewer/reused reference calls, or fewer
-scene images) is the main open problem before scaling — quality on Pro is not the issue.
+Pro Image cost **~CAD 3.5–3.8** (two runs: 3.53 and an instrumented 3.83) — over the
+project's $3 POC ceiling and well above the early ~$0.90/book estimate. The instrumented
+run logged **8 API calls, 0 errors, 7 Nano Banana Pro image requests** (2 references + 5
+scenes) and 1 Flash text request; Pro image generation dominated both tokens and cost
+(Pro: 5.85K in / 11.65K out; Flash: 0.63K in / 2.13K out). Full table in CHECKPOINT.md.
+The combined-call approach kept this feature from making it *worse*, but the underlying
+mixed-media cost (one Pro reference per character + 5 Pro scene images) is the real
+driver. **This does not scale at the current per-book cost.** Cutting Pro image calls
+(cheaper model for non-face steps, fewer/reused references, fewer scene images) is the
+main open problem before scaling — quality on Pro is not the issue.
 
 ## Risks
 

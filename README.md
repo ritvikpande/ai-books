@@ -67,4 +67,4 @@ gcloud run deploy storybook-app \
 - `templates/index.html` - Frontend UI
 - `Dockerfile` - Container image (gunicorn on port 5000)
 
-> **Cost note (measured 2026-06-17):** a 5-page mixed-media book with face-swap on Gemini 3 Pro Image cost ~CAD 3.53 — over the POC's $3 ceiling. The per-book cost on Pro does not scale; cost reduction is the main open problem before scaling. See `.claude/CLAUDE.md` → Cost Estimate.
+> **Cost note (measured 2026-06-17):** a 5-page mixed-media book with face-swap on Gemini 3 Pro Image cost ~CAD 3.5–3.8 (8 API calls, 0 errors; 7 Pro image requests + 1 Flash text request) — over the POC's $3 ceiling. The per-book cost on Pro does not scale; cost reduction is the main open problem before scaling. See `.claude/CLAUDE.md` → Cost Estimate.

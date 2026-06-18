@@ -23,7 +23,23 @@ Tasks 1–9 built, reviewed, committed (`287fcfb`..`a33dc2b`). Findings recorded
 
 - ✅ **Face-swap quality: excellent.** Photorealistic character with a real human face swapped in looked fantastic. Upload UX, refs/ folder (generated + original side by side), and the no-photo character all worked.
 - ⚠️ **White sticker/cutout border around characters** (both photoreal and cartoon, intermittently). **FIXED** in commit `7b7b65f`: removed the "collage" wording (root cause) from `STYLE_PHRASES` closers and the mixed-media opener, added an explicit "blend seamlessly / no white border/outline/frame/cut-out edge" instruction, and added the same no-border rule to the classic `SYSTEM_PROMPT`. Suite: 98 passed. **Needs a re-run to confirm the border is gone in actual output.**
-- 💸 **Cost: CAD 3.53 for a 5-page book** — over the $3 POC ceiling and ~4× the original ~$0.90 estimate. Driver: one Pro reference per character + 5 Pro scene images (~7–8 Pro image calls/book). **Does not scale at this per-book cost.** Recorded in `.claude/CLAUDE.md` (Cost Estimate + Risks) and both design specs. Cost reduction (cheaper model for non-face steps, fewer/reused reference calls, fewer scene images) is the main open problem before scaling — quality is not the issue.
+- 💸 **Cost: ~CAD 3.5–3.8 for a 5-page book** — over the $3 POC ceiling and ~4× the original ~$0.90 estimate. Two measured runs: **CAD 3.53** (first run) and **CAD 3.83** (instrumented run below). **Does not scale at this per-book cost.** Recorded in `.claude/CLAUDE.md` (Cost Estimate + Risks) and both design specs. Cost reduction (cheaper model for non-face steps, fewer/reused reference calls, fewer scene images) is the main open problem before scaling — quality is not the issue.
+
+### Instrumented run metrics (2026-06-17 — mixed media, 1 photoreal face-swap character + 1 cartoon)
+
+| Metric | Value |
+|---|---|
+| Total API calls | 8 |
+| Total API errors | 0 |
+| Requests — Nano Banana Pro (Gemini 3 Pro Image) | 7 |
+| Requests — Gemini 3 Flash (text) | 1 |
+| Input tokens — Gemini 3 Pro | 5.85K |
+| Output tokens — Gemini 3 Pro | 11.65K |
+| Input tokens — Gemini 3 Flash | 0.63K |
+| Output tokens — Gemini 3 Flash | 2.13K |
+| **Total cost** | **CAD 3.83** |
+
+The 7 Pro image requests = 2 reference images (1 face-swap photoreal + 1 cartoon) + 5 scene images; the 1 Flash request is the story-text generation. Pro image generation dominates both token volume and cost — confirming that cutting Pro image calls (not text) is the lever for scaling cost down.
 
 ## Next
 
