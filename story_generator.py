@@ -21,8 +21,8 @@ Format:
       "text": "1-2 short sentences for this scene. Simple words, warm and fun tone.",
       "image_prompt": "Children's storybook illustration: [describe the scene visually]. 
       Characters: [describe each character with consistent physical details — colors, clothing, size]. 
-      Setting: [describe background, time of day, colors]. Mood: [warm/playful/cozy/etc]. 
-      Style: [ART_STYLE]. No text or words in the image."
+      Setting: [describe background, time of day, colors]. Mood: [warm/playful/cozy/etc].
+      Style: [ART_STYLE]. No text or words in the image, and no border, frame, or outline around the characters or the image."
     }
   ]
 }
@@ -33,6 +33,7 @@ Rules:
 - In EVERY image_prompt, always describe the characters the same way (same colors, same clothing) so they look consistent across all images
 - The ART_STYLE placeholder will be replaced with the user's chosen style
 - Each image_prompt should be 60-100 words
+- Never draw a border, frame, outline, or cut-out edge around the characters or the image — characters blend naturally into the scene
 - No scary, violent, or inappropriate content"""
 
 

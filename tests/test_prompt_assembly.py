@@ -26,9 +26,18 @@ def _assemble(scene=SCENE, photoreal=PHOTOREAL, cartoon=CARTOON,
 
 def test_boilerplate_opener_and_closers_present_verbatim():
     prompt = _assemble()
-    assert prompt.startswith("A mixed media children's book illustration collage.")
-    assert "Clean lines, pastel colors for the background, collage art style." in prompt
+    assert prompt.startswith("A mixed media children's book illustration.")
+    assert "Clean lines, pastel colors for the background." in prompt
     assert prompt.endswith("No text or words in the image.")
+
+
+def test_no_border_or_cutout_instruction_present():
+    # Characters must blend into the scene — no white sticker/cutout border,
+    # which the old "collage" wording was inducing in Gemini's output.
+    prompt = _assemble().lower()
+    assert "seamlessly" in prompt
+    assert "no white border" in prompt
+    assert "collage" not in prompt
 
 
 def test_photoreal_sentence_uses_scene_action():

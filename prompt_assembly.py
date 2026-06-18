@@ -8,23 +8,23 @@ Keys of STYLE_PHRASES are lowercase because app.py lowercases art_style.
 STYLE_PHRASES = {
     "2d flat vector cartoon (pastel)": {
         "world_phrase": "2D flat vector cartoon",
-        "style_closer": "Clean lines, pastel colors for the background, collage art style",
+        "style_closer": "Clean lines, pastel colors for the background",
     },
     "watercolor storybook illustration": {
         "world_phrase": "2D watercolor storybook illustration",
-        "style_closer": "Soft watercolor washes for the background, collage art style",
+        "style_closer": "Soft watercolor washes for the background",
     },
     "cartoon illustration": {
         "world_phrase": "2D cartoon illustration",
-        "style_closer": "Bold clean outlines, bright friendly colors for the background, collage art style",
+        "style_closer": "Bold clean outlines, bright friendly colors for the background",
     },
     "pencil sketch illustration": {
         "world_phrase": "2D pencil sketch illustration",
-        "style_closer": "Soft graphite shading for the background, collage art style",
+        "style_closer": "Soft graphite shading for the background",
     },
     "pixel art illustration": {
         "world_phrase": "2D pixel art illustration",
-        "style_closer": "Retro pixel detail for the background, collage art style",
+        "style_closer": "Retro pixel detail for the background",
     },
 }
 
@@ -179,7 +179,7 @@ def assemble_mixed_media_prompt(
     cartoon_characters = cartoon_characters or []
 
     sentences = [
-        "A mixed media children's book illustration collage.",
+        "A mixed media children's book illustration.",
         (
             "In the center, a photorealistic, high-resolution photograph of "
             f"{_clause(scene['photoreal_action'])}."
@@ -208,6 +208,11 @@ def assemble_mixed_media_prompt(
         sentences.append(reference_sentence)
 
     sentences.append(f"{phrases['style_closer']}.")
+    sentences.append(
+        "Blend every character and element seamlessly into one cohesive scene, "
+        "with no white border, outline, frame, or cut-out sticker edge around any "
+        "character or object."
+    )
     sentences.append("No text or words in the image.")
 
     return " ".join(sentences)
