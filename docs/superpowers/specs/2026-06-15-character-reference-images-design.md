@@ -79,4 +79,4 @@ Each mixed-media book adds N reference images (one per character) before the 5 s
 ## Open / deferred
 
 - Whether to restrict non-vector styles or label them "experimental" — decide after E2E confirms references tame watercolor drift.
-- Displaying reference images in the UI (currently saved + in `story.json` only).
+- ~~Displaying reference images in the UI (currently saved + in `story.json` only).~~ **Done (2026-06-17):** the `/generate` response's `character_refs` are now rendered in a "Character references" section after generation; face-swapped characters show the uploaded photo next to the generated reference. Records gained an `upload_path` field (the saved copy of the original upload, or `None`) to support this.

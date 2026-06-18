@@ -106,7 +106,13 @@
                     <div class="alert alert-success">
                         Story generated in <span id="timeElapsed"></span> seconds!
                     </div>
-                    
+
+                    <div id="referencesSection" class="d-none mt-4">
+                        <h5 class="text-muted">Character references <small>(for testing — the appearance anchor used on every page)</small></h5>
+                        <div id="referencesContainer" class="row"></div>
+                        <hr>
+                    </div>
+
                     <div id="scenesContainer" class="row mt-4"></div>
                     
                     <hr>
@@ -275,6 +281,50 @@
             });
         });
 
+        // Show the per-character reference images (mixed-media only) so they can be
+        // visually checked during testing. For face-swapped characters, the original
+        // uploaded photo is shown next to the generated reference for comparison.
+        function renderReferences(refs) {
+            const section = document.getElementById('referencesSection');
+            const container = document.getElementById('referencesContainer');
+            container.innerHTML = '';
+            if (!refs || refs.length === 0) {
+                section.classList.add('d-none');
+                return;
+            }
+            refs.forEach(ref => {
+                const genImg = '/images?path=' + encodeURIComponent(ref.path);
+                const name = (ref.name || 'Character');
+                const swapBadge = ref.from_photo ? ' <span class="badge bg-info">face swap</span>' : '';
+                let pair = '';
+                if (ref.upload_path) {
+                    const upImg = '/images?path=' + encodeURIComponent(ref.upload_path);
+                    pair +=
+                        '<div class="text-center me-2">' +
+                          '<img src="' + upImg + '" class="img-thumbnail" style="max-height:160px;">' +
+                          '<small class="text-muted d-block">uploaded</small>' +
+                        '</div>';
+                }
+                pair +=
+                    '<div class="text-center">' +
+                      '<img src="' + genImg + '" class="img-thumbnail" style="max-height:160px;">' +
+                      '<small class="text-muted d-block">generated</small>' +
+                    '</div>';
+                const card = document.createElement('div');
+                card.className = 'col-md-4 mb-3';
+                card.innerHTML =
+                    '<div class="card h-100"><div class="card-body p-2">' +
+                      '<p class="mb-2"><strong></strong> <span class="badge bg-secondary"></span>' + swapBadge + '</p>' +
+                      '<div class="d-flex">' + pair + '</div>' +
+                    '</div></div>';
+                // Set user-controlled text via textContent (avoid HTML injection).
+                card.querySelector('strong').textContent = name;
+                card.querySelector('.badge.bg-secondary').textContent = ref.kind;
+                container.appendChild(card);
+            });
+            section.classList.remove('d-none');
+        }
+
         document.getElementById('storyForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -326,6 +376,8 @@
                 const container = document.getElementById('scenesContainer');
                 container.innerHTML = ''; // Clear previous scenes
                 
+                renderReferences(data.story.character_refs);
+
                 data.story.scenes.forEach((scene, index) => {
                     const imagePath = encodeURIComponent(data.image_paths[index]);
                     const html = `

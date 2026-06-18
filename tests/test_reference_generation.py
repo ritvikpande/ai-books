@@ -46,6 +46,7 @@ def test_no_context_images_passed(tmp_path):
     records = generate_reference_images([{"name": "Dad"}], [], STYLE, str(tmp_path), provider, "m")
     assert provider.calls[0]["context_images"] == []
     assert records[0]["from_photo"] is False
+    assert records[0]["upload_path"] is None
 
 
 def test_cartoon_skipped_when_empty(tmp_path):
@@ -105,6 +106,8 @@ def test_upload_copy_saved_alongside_reference(tmp_path):
     assert os.path.exists(upload_copy)
     with open(upload_copy, "rb") as f:
         assert f.read() == b"FAKE-UPLOADED-PHOTO-BYTES"
+    # The copy's path is exposed on the record so the UI can show input vs output.
+    assert records[0]["upload_path"] == upload_copy
 
 
 def test_from_photo_field_in_records(tmp_path):

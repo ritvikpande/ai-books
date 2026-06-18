@@ -26,7 +26,8 @@ def test_index_renders_character_ui(client):
     body = resp.get_data(as_text=True)
     for token in ("photorealCharacterList", "cartoonCharacterList",
                   "addPhotorealBtn", "addCartoonBtn", "proHint",
-                  "field-photo-input", "/upload_photo"):
+                  "field-photo-input", "/upload_photo",
+                  "referencesContainer", "renderReferences"):
         assert token in body
 
 

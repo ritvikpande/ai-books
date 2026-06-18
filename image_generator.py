@@ -165,7 +165,10 @@ def generate_reference_images(
     generated reference as <kind>_<index>_upload.png. A missing/stale photo_path
     degrades gracefully to the no-photo path.
 
-    Returns ordered records: [{"kind", "index", "name", "path", "from_photo"}, ...].
+    Returns ordered records:
+    [{"kind", "index", "name", "path", "from_photo", "upload_path"}, ...].
+    upload_path is the saved copy of the original uploaded photo when from_photo
+    is True (so the UI can show input vs. output side by side), else None.
     """
     refs_dir = os.path.join(output_dir, "refs")
     os.makedirs(refs_dir, exist_ok=True)
@@ -196,6 +199,7 @@ def generate_reference_images(
             with open(path, "wb") as f:
                 f.write(image_data)
 
+            upload_copy_path = None
             if has_photo:
                 upload_copy_path = os.path.join(refs_dir, f"{kind}_{index}_upload.png")
                 shutil.copyfile(photo_path, upload_copy_path)
@@ -203,6 +207,7 @@ def generate_reference_images(
             records.append({
                 "kind": kind, "index": index, "name": label,
                 "path": path, "from_photo": has_photo,
+                "upload_path": upload_copy_path,
             })
 
     logger.info(f"{len(records)} character reference image(s) generated.")
