@@ -1,53 +1,39 @@
-# Execution Checkpoint — Face-Swap Photo Upload for Photoreal Characters
+# Execution Checkpoint — Fable Suggestions Refactor Implementation
 
-**Plan:** `docs/superpowers/plans/2026-06-16-face-swap-photo-upload.md` (approved 2026-06-16)
-**Prior feature plan:** `~/.claude/plans/fizzy-splashing-truffle.md` ([spec](../specs/2026-06-15-character-reference-images-design.md))
-**Branch:** `feat/face-swap`
-**Last updated:** 2026-06-17 (after Task 7 manual E2E + border fix + cost recording)
+**Plan:** `C:\Users\ritvi\.claude\plans\now-our-next-goal-robust-neumann.md` (analysis-docs plan, approved) — the *implementation* being tracked here is a follow-on the user requested after reading the docs, not itself written up as a separate plan file yet.
+**Analysis docs:** [FableSuggestions.md](../../FableSuggestions.md) (12 prioritized findings), [BookCostOptimization.md](../../BookCostOptimization.md), [NextJSWebDesign.md](../../NextJSWebDesign.md) — all at repo root.
+**Branch:** `refactor/fable-suggestions` (created from `feat/face-swap` — NOT yet merged/pushed)
+**Last updated:** 2026-07-18 (session cut short on usage limit before implementation started)
 
-## Prior feature (character reference images + structured multi-character UI) — built, E2E not confirmed in this checkpoint
+## Prior branch (`feat/face-swap`) — complete, not yet merged
 
-Tasks 1–9 built, reviewed, committed (`287fcfb`..`a33dc2b`). Findings recorded in git history / design specs. Task 10 (full E2E of the reference-image pipeline) was not separately confirmed before face-swap work began.
+Face-swap feature (photo upload, face preservation, white-border fix, reference display in UI) fully implemented, tested (98 passed), and manually E2E-validated by the user — quality excellent. Cost measured at ~CAD 3.5–3.8/book (over the $3 POC ceiling), which motivated the Fable analysis docs. `feat/face-swap` itself was never pushed/PR'd — that's still pending after this refactor branch is dealt with. Full history in git log and the (now superseded) prior checkpoint content — see `git log feat/face-swap`.
 
-## Done (this feature — all 6 build tasks + E2E + follow-ups)
+## Done (this branch)
 
-- **Task 1: Data model** — `CHARACTER_FIELDS` gains `photo_path`. Commit `b9723b9`. ✅
-- **Task 2: Reference prompt** — `assemble_reference_prompt` gains `has_photo`; face-preservation variant. Commit `896f776`. ✅
-- **Task 3: Reference generation** — `generate_reference_images` reads `photo_path`, passes photo bytes as context, copies original to `refs/<kind>_<n>_upload.png`, records `from_photo`. Commit `72671b3`. ✅
-- **Task 4: Upload endpoint** — `POST /upload_photo` (validate, Pillow normalize, UUID filename, 8MB cap). Commits `f8d22fc`, `62e858e`. ✅
-- **Task 5: Frontend** — photoreal cards gain file input + thumbnail + hidden `field-photo-path`; upload-on-select; Generate disabled while uploads in flight. Commits `850f1d8`, `68317d1`. ✅
-- **Task 6: Docs** — spec status updated. Commit `a2ad0b0`. ✅
-- Final full-implementation code review: **Ready to merge: Yes** (one Important note: TOCTOU in `_load_context_bytes` is a pre-production concern only — acceptable for POC with no `_uploads/` cleanup). Test-coverage nit fixed in `28d752f`.
+- Three analysis docs written and committed: `FableSuggestions.md`, `BookCostOptimization.md`, `NextJSWebDesign.md`. Commit `a6006a1`.
+- Branch `refactor/fable-suggestions` created off `feat/face-swap`.
+- TDD skill loaded; implementation plan (TodoWrite, 11 items below) drafted but **not started** — session hit the usage limit right after setup, before any code/test was written.
 
-## Manual E2E results (Task 7 — USER ran, 2026-06-17, Gemini 3 Pro Image)
+## Next — start here
 
-- ✅ **Face-swap quality: excellent.** Photorealistic character with a real human face swapped in looked fantastic. Upload UX, refs/ folder (generated + original side by side), and the no-photo character all worked.
-- ⚠️ **White sticker/cutout border around characters** (both photoreal and cartoon, intermittently). **FIXED** in commit `7b7b65f`: removed the "collage" wording (root cause) from `STYLE_PHRASES` closers and the mixed-media opener, added an explicit "blend seamlessly / no white border/outline/frame/cut-out edge" instruction, and added the same no-border rule to the classic `SYSTEM_PROMPT`. Suite: 98 passed. **Needs a re-run to confirm the border is gone in actual output.**
-- 💸 **Cost: ~CAD 3.5–3.8 for a 5-page book** — over the $3 POC ceiling and ~4× the original ~$0.90 estimate. Two measured runs: **CAD 3.53** (first run) and **CAD 3.83** (instrumented run below). **Does not scale at this per-book cost.** Recorded in `.claude/CLAUDE.md` (Cost Estimate + Risks) and both design specs. Cost reduction (cheaper model for non-face steps, fewer/reused reference calls, fewer scene images) is the main open problem before scaling — quality is not the issue.
+Work through the TodoWrite list below **in order** (dependencies matter — ARCH-6 must land before PERF-7; COST/OBS-4 before the cost-lever experiment). Each item = one TDD cycle (failing test → minimal code → green) per `FableSuggestions.md`'s per-finding "Verification" / "Suggested tests" notes. Gate: `venv\Scripts\python.exe -m pytest -q` must stay green throughout (currently 98 passed) and grow as tests are added.
 
-### Instrumented run metrics (2026-06-17 — mixed media, 1 photoreal face-swap character + 1 cartoon)
+1. **DUP-8** — hoist the duplicated `client` fixture (`test_app_generate.py:6-9`, `test_upload_photo.py:10-13`) into `tests/conftest.py`; delete both local copies. Mechanical.
+2. **COST/OBS-4 + PERF-9** — in `providers.py`: log `response.usage_metadata` per call (model id + tag); build the `genai.Client` once (module-level singleton) instead of per-call in `generate_image`. Tests: fake provider with stub `usage_metadata`; confirm existing fake-provider tests (which return raw bytes, no usage) still pass.
+3. **CORR-5** — guard empty/None `response.candidates` in `providers.py:37` (raise the intended `ValueError`, not `IndexError`); add bounded retry/backoff for transient errors only (not safety blocks). Tests: fake provider that raises-then-succeeds; empty-candidates case; no-retry-on-safety-block case.
+4. **SEC-1** (own PR-sized change, its own commit) — replace client-supplied absolute paths in `/images` and `/download_pdf` with `story_id`-based lookup jailed to `OUTPUT_DIR`; update `templates/index.html` + JS fetch calls to pass ids not paths. Write negative tests FIRST (traversal, absolute path, unknown id all rejected) before touching the routes.
+5. **ARCH-6** — extract `story_service.generate_book(...)` out of `app.py`'s `/generate` view (no Flask imports in the service module). Existing `test_app_generate.py` route tests are the behavior pin — must pass unchanged. Add a direct unit test of the service with fake providers.
+6. **PERF-7** (after ARCH-6) — parallelize the independent reference-image generations (thread pool, cap size for rate limits) and overlap story-gen with ref-gen. Must preserve reference-ordering invariant (photoreal-first-then-cartoon) under concurrency — write `test_reference_order_preserved_under_concurrency` first.
+7. **SEC-2 interim** — per-IP rate limit on `/generate` (the full fix is auth in the Next.js migration, out of scope here).
+8. **Cost Lever #1 enabler** — optional `scene_image_model` routing (so Flash can be tried for cartoon ref + scenes while Pro stays for the photoreal/face-swap reference) + a UI control to pick it. This is the hybrid-routing *experiment infrastructure* from `BookCostOptimization.md`, not a verified savings claim — the real quality verdict still needs a manual run.
+9. **OPS-11 + PERF/OPS-3 interim** — pin `requirements.txt`; fix/remove the broken `curl` healthcheck in `Dockerfile`; add non-root `USER`; add `outputs/` to `.dockerignore`; raise gunicorn timeout above worst-case generation time.
+10. **DOC-12** — generic error message returned to clients on 500 (log detail server-side, don't leak `str(e)`); gate `debug=True` behind an env var; fix `TECHNICAL_OVERVIEW.md` (still says Streamlit) and the dead `.claude/CLAUDE.md` link in `README.md:70`.
+11. **Final** — full suite green, update this CHECKPOINT.md marking each finding done/skipped, note in `FableSuggestions.md`/`BookCostOptimization.md` which findings were actually implemented vs. deferred.
 
-| Metric | Value |
-|---|---|
-| Total API calls | 8 |
-| Total API errors | 0 |
-| Requests — Nano Banana Pro (Gemini 3 Pro Image) | 7 |
-| Requests — Gemini 3 Flash (text) | 1 |
-| Input tokens — Gemini 3 Pro | 5.85K |
-| Output tokens — Gemini 3 Pro | 11.65K |
-| Input tokens — Gemini 3 Flash | 0.63K |
-| Output tokens — Gemini 3 Flash | 2.13K |
-| **Total cost** | **CAD 3.83** |
+## Pending / open (not blocking, deferred by design)
 
-The 7 Pro image requests = 2 reference images (1 face-swap photoreal + 1 cartoon) + 5 scene images; the 1 Flash request is the story-text generation. Pro image generation dominates both token volume and cost — confirming that cutting Pro image calls (not text) is the lever for scaling cost down.
-
-## Next
-
-- **Re-run E2E** to confirm the border fix removed the white edges in actual Gemini output (the fix is prompt-level; only a real run confirms it).
-- finishing-a-development-branch: push `feat/face-swap` to origin, open PR to main (not yet pushed).
-
-## Pending / open (not blocking the branch)
-
-- Cost reduction strategy before any scale-up (see above).
-- Pre-production hardening: TOCTOU guard in `_load_context_bytes`; `_uploads/` lifecycle/cleanup; portable paths in `story.json`.
-- Optional: update stale `TECHNICAL_OVERVIEW.md` (still describes the Streamlit version).
+- SEC-1/SEC-2/PERF-3's **durable** fixes (object storage + job model + real auth) are Next.js-migration scope (`NextJSWebDesign.md`), not this branch.
+- Cost Lever #2 (character-library reuse) and #3 (draft-on-Flash → approve → Pro) — migration-era, need persistence/DB, out of scope here.
+- `feat/face-swap` still needs to be pushed + PR'd to main (was already pending before this branch existed).
+- Re-run E2E to visually confirm the white-border fix (from `feat/face-swap`) — still outstanding, independent of this refactor.
