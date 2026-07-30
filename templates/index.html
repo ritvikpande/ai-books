@@ -281,10 +281,16 @@
             });
         });
 
+        // Build a URL for a story asset from its story_id + server-assigned
+        // filename (never a raw filesystem path — see app.py's /images route).
+        function imageUrl(storyId, filename) {
+            return '/images/' + storyId + '/' + filename;
+        }
+
         // Show the per-character reference images (mixed-media only) so they can be
         // visually checked during testing. For face-swapped characters, the original
         // uploaded photo is shown next to the generated reference for comparison.
-        function renderReferences(refs) {
+        function renderReferences(refs, storyId) {
             const section = document.getElementById('referencesSection');
             const container = document.getElementById('referencesContainer');
             container.innerHTML = '';
@@ -293,12 +299,12 @@
                 return;
             }
             refs.forEach(ref => {
-                const genImg = '/images?path=' + encodeURIComponent(ref.path);
+                const genImg = imageUrl(storyId, ref.filename);
                 const name = (ref.name || 'Character');
                 const swapBadge = ref.from_photo ? ' <span class="badge bg-info">face swap</span>' : '';
                 let pair = '';
-                if (ref.upload_path) {
-                    const upImg = '/images?path=' + encodeURIComponent(ref.upload_path);
+                if (ref.upload_filename) {
+                    const upImg = imageUrl(storyId, ref.upload_filename);
                     pair +=
                         '<div class="text-center me-2">' +
                           '<img src="' + upImg + '" class="img-thumbnail" style="max-height:160px;">' +
@@ -376,13 +382,13 @@
                 const container = document.getElementById('scenesContainer');
                 container.innerHTML = ''; // Clear previous scenes
                 
-                renderReferences(data.story.character_refs);
+                renderReferences(data.story.character_refs, data.story_id);
 
                 data.story.scenes.forEach((scene, index) => {
-                    const imagePath = encodeURIComponent(data.image_paths[index]);
+                    const src = imageUrl(data.story_id, data.image_filenames[index]);
                     const html = `
                         <div class="col-md-6 mb-4">
-                            <img src="/images?path=${imagePath}" class="scene-img mb-2" alt="Scene Image">
+                            <img src="${src}" class="scene-img mb-2" alt="Scene Image">
                             <p class="text-muted small"><strong>Scene ${scene.scene_number}:</strong> ${scene.text}</p>
                         </div>
                     `;
@@ -417,9 +423,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        image_paths: currentStoryData.image_paths,
-                        story_title: currentStoryData.story_title,
-                        story_dir: currentStoryData.story_dir
+                        story_id: currentStoryData.story_id
                     })
                 });
 

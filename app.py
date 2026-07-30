@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import time
 import uuid
 import datetime
@@ -27,6 +28,10 @@ MAX_CHARACTERS = 6  # soft cap to bound request size / cost across refs + window
 # Photo upload handling (face-swap reference photos)
 ALLOWED_PHOTO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 MAX_PHOTO_DIMENSION = 1536
+
+# Story asset serving (SEC-1): stories are looked up by id, never by a
+# client-supplied filesystem path. story_dir names are always "story_<ts>".
+STORY_ID_RE = re.compile(r'^story_[0-9_]+$')
 
 
 def _normalize_characters(raw) -> list:
@@ -76,6 +81,51 @@ def _save_uploaded_photo(file_storage) -> str:
     path = os.path.join(upload_dir, f"{uuid.uuid4().hex}.png")
     img.save(path, "PNG")
     return path
+
+
+def _resolve_story_dir(story_id: str) -> str:
+    """Resolve a story_id to its real directory inside OUTPUT_DIR.
+
+    Never trusts the caller with a filesystem path directly — only an id
+    matching STORY_ID_RE, then confined to OUTPUT_DIR via a realpath
+    containment check (also defends against escaping through a symlink).
+    Raises ValueError for anything invalid or not found.
+    """
+    if not STORY_ID_RE.match(story_id or ""):
+        raise ValueError("Invalid story id.")
+    base_dir = os.path.realpath(OUTPUT_DIR)
+    story_dir = os.path.realpath(os.path.join(base_dir, story_id))
+    if story_dir != base_dir and not story_dir.startswith(base_dir + os.sep):
+        raise ValueError("Invalid story id.")
+    if not os.path.isdir(story_dir):
+        raise ValueError("Story not found.")
+    return story_dir
+
+
+def _resolve_story_asset(story_id: str, filename: str) -> str:
+    """Resolve a story_id + '/'-separated relative filename to a real file
+    path confined to that story's directory. Raises ValueError for anything
+    absolute, containing '..'/'.' segments, or resolving outside the dir.
+    """
+    story_dir = _resolve_story_dir(story_id)
+    if not filename or "\\" in filename or filename.startswith("/"):
+        raise ValueError("Invalid filename.")
+    segments = filename.split("/")
+    if any(seg in ("", ".", "..") for seg in segments):
+        raise ValueError("Invalid filename.")
+
+    full_path = os.path.realpath(os.path.join(story_dir, *segments))
+    if full_path != story_dir and not full_path.startswith(story_dir + os.sep):
+        raise ValueError("Invalid filename.")
+    if not os.path.isfile(full_path):
+        raise ValueError("Asset not found.")
+    return full_path
+
+
+def _relative_filename(path: str, story_dir: str) -> str:
+    """POSIX-style ('/'-separated) path of `path` relative to `story_dir`,
+    for embedding in API responses instead of an absolute filesystem path."""
+    return os.path.relpath(path, story_dir).replace(os.sep, "/")
 
 
 @app.route('/upload_photo', methods=['POST'])
@@ -176,12 +226,32 @@ def generate():
         total_elapsed = time.time() - total_start
         logger.info(f"Total generation time: {total_elapsed:.1f}s")
 
+        # Never send filesystem paths to the browser — only a story_id and
+        # filenames relative to it, resolved back through /images (SEC-1).
+        story_id = os.path.basename(story_dir)
+        response_story = dict(story)
+        if response_story.get("character_refs"):
+            response_story["character_refs"] = [
+                {
+                    "kind": ref["kind"],
+                    "index": ref["index"],
+                    "name": ref["name"],
+                    "from_photo": ref.get("from_photo", False),
+                    "filename": _relative_filename(ref["path"], story_dir),
+                    "upload_filename": (
+                        _relative_filename(ref["upload_path"], story_dir)
+                        if ref.get("upload_path") else None
+                    ),
+                }
+                for ref in response_story["character_refs"]
+            ]
+
         return jsonify({
             "message": "Success",
-            "story": story,
-            "image_paths": image_paths, 
+            "story": response_story,
+            "story_id": story_id,
+            "image_filenames": [_relative_filename(p, story_dir) for p in image_paths],
             "story_title": story["title"],
-            "story_dir": story_dir,
             "time_elapsed": round(total_elapsed, 1)
         })
 
@@ -189,36 +259,47 @@ def generate():
         logger.error(f"Generation error: {e}")
         return jsonify({"error": str(e)}), 500
 
-# Endpoint to serve generated images to the frontend
-@app.route('/images', methods=['GET'])
-def get_image():
-    filepath = request.args.get('path')
-    if not filepath or not os.path.exists(filepath):
+# Endpoint to serve generated images to the frontend. Assets are looked up
+# by story_id + filename (never a client-supplied filesystem path) and
+# confined to that story's directory inside OUTPUT_DIR — see
+# _resolve_story_asset (SEC-1).
+@app.route('/images/<story_id>/<path:filename>', methods=['GET'])
+def get_image(story_id, filename):
+    try:
+        full_path = _resolve_story_asset(story_id, filename)
+    except ValueError:
         return "Image not found", 404
-    
-    directory = os.path.dirname(filepath)
-    filename = os.path.basename(filepath)
-    return send_from_directory(directory, filename)
+    return send_from_directory(os.path.dirname(full_path), os.path.basename(full_path))
 
-# Endpoint to generate and download the PDF
+# Endpoint to generate and download the PDF. The client sends only a
+# story_id; the image list and title are rebuilt from that story's own
+# story.json on disk, never from client-supplied paths (SEC-1).
 @app.route('/download_pdf', methods=['POST'])
 def download_pdf():
-    data = request.json
+    data = request.json or {}
     try:
-        pdf_bytes = generate_pdf(
-            data['image_paths'],
-            data['story_title'],
-            data['story_dir']
-        )
+        story_dir = _resolve_story_dir(data.get('story_id'))
+        story_json_path = os.path.join(story_dir, "story.json")
+        if not os.path.isfile(story_json_path):
+            raise ValueError("Story not found.")
+        with open(story_json_path) as f:
+            story = json.load(f)
+        image_paths = [
+            os.path.join(story_dir, f"scene_{s['scene_number']}.png")
+            for s in story["scenes"]
+        ]
+        pdf_bytes = generate_pdf(image_paths, story["title"], story_dir)
         return send_file(
             BytesIO(pdf_bytes),
             mimetype='application/pdf',
             as_attachment=True,
-            download_name=f"{data['story_title'].replace(' ', '_')}.pdf"
+            download_name=f"{story['title'].replace(' ', '_')}.pdf"
         )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         logger.error(f"PDF error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Could not generate PDF."}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
