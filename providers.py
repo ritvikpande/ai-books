@@ -1,11 +1,46 @@
+import io
 import logging
+import time
 from abc import ABC, abstractmethod
 
+from google.genai import errors as genai_errors
 from google.genai import types
+from PIL import Image
 
 from config import get_client
 
 logger = logging.getLogger(__name__)
+
+# Bounded retry for transient API failures. A safety-blocked response (no
+# exception, just empty candidates) is handled separately and never retried.
+MAX_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 1.0
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Only retry failures a repeat call could plausibly fix.
+
+    Rate limits (429) and server-side errors (5xx) are transient. Any other
+    google.genai.errors.APIError (400, 401, 403, 404, ...) is a deterministic
+    client mistake — retrying identical input will fail identically. Anything
+    that isn't a recognized APIError (e.g. a raw network/connection error) is
+    treated as transient, since we can't classify it more precisely.
+    """
+    if isinstance(exc, genai_errors.ClientError):
+        return exc.code == 429
+    if isinstance(exc, genai_errors.ServerError):
+        return True
+    if isinstance(exc, genai_errors.APIError):
+        return False
+    return True
+
+
+def _validate_image_bytes(data: bytes) -> None:
+    """Raise ValueError if data isn't a decodable image."""
+    try:
+        Image.open(io.BytesIO(data)).verify()
+    except Exception as e:
+        raise ValueError(f"Image data returned by the API is not a valid image: {e}")
 
 
 class ImageProvider(ABC):
@@ -16,7 +51,8 @@ class ImageProvider(ABC):
         """Generate one image from a text prompt plus optional prior images.
 
         context_images: list of PNG bytes used as visual context (sliding window).
-        Returns PNG image bytes. Raises ValueError if the API returns no image.
+        Returns PNG image bytes. Raises ValueError if the API returns no image
+        or returns data that isn't a decodable image.
         """
 
 
@@ -35,6 +71,20 @@ class GeminiProvider(ImageProvider):
             self._client = get_client()
         return self._client
 
+    def _call_with_retry(self, client, model, contents, config):
+        """Call generate_content, retrying transient failures with backoff."""
+        attempt = 0
+        while True:
+            try:
+                return client.models.generate_content(
+                    model=model, contents=contents, config=config
+                )
+            except Exception as exc:
+                attempt += 1
+                if attempt >= MAX_RETRIES or not _is_retryable(exc):
+                    raise
+                time.sleep(RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+
     def generate_image(self, prompt: str, context_images: list, model: str) -> bytes:
         client = self._get_client()
         parts = [
@@ -43,12 +93,11 @@ class GeminiProvider(ImageProvider):
         ]
         parts.append(types.Part.from_text(text=prompt))
 
-        response = client.models.generate_content(
-            model=model,
-            contents=parts,
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE", "TEXT"]
-            ),
+        response = self._call_with_retry(
+            client,
+            model,
+            parts,
+            types.GenerateContentConfig(response_modalities=["IMAGE", "TEXT"]),
         )
 
         usage = getattr(response, "usage_metadata", None)
@@ -61,8 +110,13 @@ class GeminiProvider(ImageProvider):
                 getattr(usage, "total_token_count", None),
             )
 
+        if not response.candidates:
+            feedback = getattr(response, "prompt_feedback", None)
+            raise ValueError(f"No image returned in response (prompt_feedback={feedback})")
+
         for part in response.candidates[0].content.parts:
             if part.inline_data is not None:
+                _validate_image_bytes(part.inline_data.data)
                 return part.inline_data.data
         raise ValueError("No image returned in response")
 
