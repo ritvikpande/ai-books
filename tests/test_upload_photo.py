@@ -1,16 +1,9 @@
 import io
 import os
 
-import pytest
 from PIL import Image
 
 import app as app_module
-
-
-@pytest.fixture
-def client():
-    app_module.app.config["TESTING"] = True
-    return app_module.app.test_client()
 
 
 def _image_bytes(fmt: str, size=(100, 100)) -> bytes:
