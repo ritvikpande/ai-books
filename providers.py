@@ -1,8 +1,11 @@
+import logging
 from abc import ABC, abstractmethod
 
 from google.genai import types
 
 from config import get_client
+
+logger = logging.getLogger(__name__)
 
 
 class ImageProvider(ABC):
@@ -18,8 +21,22 @@ class ImageProvider(ABC):
 
 
 class GeminiProvider(ImageProvider):
+    def __init__(self):
+        self._client = None
+
+    def _get_client(self):
+        """Lazily build the Gemini client once and reuse it across calls.
+
+        Lazy (not built in __init__) so importing this module — and the
+        module-level PROVIDERS singleton below — never requires a valid
+        GEMINI_API_KEY to be present.
+        """
+        if self._client is None:
+            self._client = get_client()
+        return self._client
+
     def generate_image(self, prompt: str, context_images: list, model: str) -> bytes:
-        client = get_client()
+        client = self._get_client()
         parts = [
             types.Part.from_bytes(data=img, mime_type="image/png")
             for img in context_images
@@ -33,6 +50,16 @@ class GeminiProvider(ImageProvider):
                 response_modalities=["IMAGE", "TEXT"]
             ),
         )
+
+        usage = getattr(response, "usage_metadata", None)
+        if usage is not None:
+            logger.info(
+                "Gemini image call model=%s prompt_tokens=%s candidates_tokens=%s total_tokens=%s",
+                model,
+                getattr(usage, "prompt_token_count", None),
+                getattr(usage, "candidates_token_count", None),
+                getattr(usage, "total_token_count", None),
+            )
 
         for part in response.candidates[0].content.parts:
             if part.inline_data is not None:
