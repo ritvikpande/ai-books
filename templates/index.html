@@ -22,9 +22,29 @@
                         <label class="form-label">Keywords / Interests</label>
                         <input type="text" class="form-control" id="keywords" placeholder="e.g. ice cream, dinosaurs" required>
                     </div>
-                    <div class="mb-3">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="mixed_media">
+                        <label class="form-check-label" for="mixed_media">
+                            Mixed Media<br>
+                            <small class="text-muted">photorealistic main characters in a cartoon world</small>
+                        </label>
+                    </div>
+                    <div class="mb-3" id="classicCharactersField">
                         <label class="form-label">Characters</label>
                         <input type="text" class="form-control" id="characters" placeholder="e.g. a curious girl named Mia" required>
+                    </div>
+                    <div class="d-none" id="mixedMediaFields">
+                        <div class="mb-3">
+                            <label class="form-label">Photorealistic Characters</label>
+                            <small class="text-muted d-block mb-1">Describe each real-photo character. A reference image is generated per character to keep them consistent.</small>
+                            <div id="photorealCharacterList"></div>
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100" id="addPhotorealBtn">+ Add photorealistic character</button>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Cartoon Characters <small class="text-muted">(optional)</small></label>
+                            <div id="cartoonCharacterList"></div>
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100" id="addCartoonBtn">+ Add cartoon character</button>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Setting</label>
@@ -42,11 +62,29 @@
                     <div class="mb-3">
                         <label class="form-label">Art Style</label>
                         <select class="form-select" id="art_style">
-                            <option>Watercolor storybook illustration</option>
+                            <option>2D flat vector cartoon (pastel)</option>
+                            <option selected>Watercolor storybook illustration</option>
                             <option>Cartoon illustration</option>
                             <option>Pencil sketch illustration</option>
                             <option>Pixel art illustration</option>
                         </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Provider</label>
+                        <select class="form-select" id="provider">
+                            {% for pid, p in providers.items() %}
+                            <option value="{{ pid }}" {% if pid == default_provider %}selected{% endif %}>{{ p.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Image Model</label>
+                        <select class="form-select" id="image_model">
+                            {% for m in providers[default_provider].image_models %}
+                            <option value="{{ m.id }}" {% if m.id == default_image_model %}selected{% endif %}>{{ m.label }}</option>
+                            {% endfor %}
+                        </select>
+                        <small id="proHint" class="text-muted d-none">Pro recommended — Flash is weak at photorealistic characters.</small>
                     </div>
                     <button type="submit" class="btn btn-primary w-100" id="generateBtn">Generate Story</button>
                 </form>
@@ -68,7 +106,13 @@
                     <div class="alert alert-success">
                         Story generated in <span id="timeElapsed"></span> seconds!
                     </div>
-                    
+
+                    <div id="referencesSection" class="d-none mt-4">
+                        <h5 class="text-muted">Character references <small>(for testing — the appearance anchor used on every page)</small></h5>
+                        <div id="referencesContainer" class="row"></div>
+                        <hr>
+                    </div>
+
                     <div id="scenesContainer" class="row mt-4"></div>
                     
                     <hr>
@@ -80,6 +124,206 @@
 
     <script>
         let currentStoryData = null;
+        let pendingUploads = 0;
+
+        const PROVIDER_MODELS = {{ providers | tojson }};
+        const DEFAULT_IMAGE_MODEL = {{ default_image_model | tojson }};
+
+        // Dropdown vocab for structured characters (blank first option = unspecified)
+        const SKIN_TONES = ["very fair","fair","light","medium","tan","olive","brown","dark brown","deep"];
+        const HAIR_COLORS = ["black","dark brown","brown","light brown","blonde","red/ginger","gray","white","bald"];
+        const BODY_TYPES = ["slim","average","athletic","curvy","heavyset"];
+        const HEIGHTS = ["short","average","tall"];
+
+        function selectHTML(cls, placeholder, options) {
+            const opts = ['<option value="">' + placeholder + '</option>']
+                .concat(options.map(o => '<option value="' + o + '">' + o + '</option>'));
+            return '<select class="form-select form-select-sm ' + cls + '">' + opts.join('') + '</select>';
+        }
+
+        // Photoreal-only photo upload block: file input + thumbnail + hidden path.
+        function photoUploadHTML() {
+            return (
+                '<div class="mb-2">' +
+                  '<input type="file" class="form-control form-control-sm field-photo-input" accept=".png,.jpg,.jpeg">' +
+                  '<img class="img-thumbnail mt-1 d-none field-photo-thumb" style="max-height:80px;">' +
+                  '<small class="text-muted d-block field-photo-status"></small>' +
+                  '<input type="hidden" class="field-photo-path" value="">' +
+                '</div>'
+            );
+        }
+
+        // Wire a photoreal card's file input: upload immediately on selection,
+        // show a thumbnail preview, and stash the server-assigned path for submit.
+        function attachPhotoUploadHandler(card) {
+            const input = card.querySelector('.field-photo-input');
+            const thumb = card.querySelector('.field-photo-thumb');
+            const status = card.querySelector('.field-photo-status');
+            const pathField = card.querySelector('.field-photo-path');
+
+            input.addEventListener('change', async () => {
+                const file = input.files[0];
+                pathField.value = '';
+                if (!file) {
+                    thumb.classList.add('d-none');
+                    status.textContent = '';
+                    return;
+                }
+
+                thumb.src = URL.createObjectURL(file);
+                thumb.classList.remove('d-none');
+                status.textContent = 'Uploading…';
+
+                pendingUploads++;
+                document.getElementById('generateBtn').disabled = true;
+
+                try {
+                    const formData = new FormData();
+                    formData.append('photo', file);
+                    const response = await fetch('/upload_photo', { method: 'POST', body: formData });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Upload failed');
+                    pathField.value = data.photo_path;
+                    status.textContent = 'Photo attached.';
+                } catch (err) {
+                    status.textContent = err.message;
+                } finally {
+                    pendingUploads--;
+                    if (pendingUploads === 0) {
+                        document.getElementById('generateBtn').disabled = false;
+                    }
+                }
+            });
+        }
+
+        // Build one character card (static markup; no user data interpolated here).
+        // Photo upload UI is only added for photoreal cards (cartoon characters never
+        // get an upload widget).
+        function addCharacterCard(listId) {
+            const isPhotoreal = listId === 'photorealCharacterList';
+            const list = document.getElementById(listId);
+            const card = document.createElement('div');
+            card.className = 'card mb-2 character-card';
+            card.innerHTML =
+                '<div class="card-body p-2">' +
+                  '<div class="d-flex mb-2">' +
+                    '<input type="text" class="form-control form-control-sm field-name" placeholder="Name (e.g. Dad)">' +
+                    '<button type="button" class="btn btn-sm btn-outline-danger ms-2 remove-character" title="Remove">&times;</button>' +
+                  '</div>' +
+                  (isPhotoreal ? photoUploadHTML() : '') +
+                  '<div class="row g-1 mb-2">' +
+                    '<div class="col-6">' + selectHTML('field-skin-tone', 'Skin tone…', SKIN_TONES) + '</div>' +
+                    '<div class="col-6">' + selectHTML('field-hair-color', 'Hair color…', HAIR_COLORS) + '</div>' +
+                    '<div class="col-6">' + selectHTML('field-body-type', 'Body type…', BODY_TYPES) + '</div>' +
+                    '<div class="col-6">' + selectHTML('field-height', 'Height…', HEIGHTS) + '</div>' +
+                  '</div>' +
+                  '<textarea class="form-control form-control-sm field-description" rows="4" ' +
+                    'placeholder="Anything else — clothing, age, glasses, accessories…"></textarea>' +
+                '</div>';
+            card.querySelector('.remove-character').addEventListener('click', () => card.remove());
+            if (isPhotoreal) {
+                attachPhotoUploadHandler(card);
+            }
+            list.appendChild(card);
+            return card;
+        }
+
+        // Read a character list into an array of objects, dropping fully-empty cards.
+        function collectCharacters(listId) {
+            return [...document.querySelectorAll('#' + listId + ' .character-card')].map(card => {
+                const photoField = card.querySelector('.field-photo-path');
+                return {
+                    name: card.querySelector('.field-name').value.trim(),
+                    skin_tone: card.querySelector('.field-skin-tone').value,
+                    hair_color: card.querySelector('.field-hair-color').value,
+                    body_type: card.querySelector('.field-body-type').value,
+                    height: card.querySelector('.field-height').value,
+                    description: card.querySelector('.field-description').value.trim(),
+                    photo_path: photoField ? photoField.value : '',
+                };
+            }).filter(c => c.name || c.description || c.skin_tone || c.hair_color || c.body_type || c.height || c.photo_path);
+        }
+
+        document.getElementById('addPhotorealBtn').addEventListener('click', () => addCharacterCard('photorealCharacterList'));
+        document.getElementById('addCartoonBtn').addEventListener('click', () => addCharacterCard('cartoonCharacterList'));
+
+        // Mixed Media toggle: swap character fields, preselect the proven style,
+        // default to Pro (Flash is weak at photoreal), and seed one character card.
+        document.getElementById('mixed_media').addEventListener('change', (e) => {
+            const mixed = e.target.checked;
+            document.getElementById('classicCharactersField').classList.toggle('d-none', mixed);
+            document.getElementById('mixedMediaFields').classList.toggle('d-none', !mixed);
+            document.getElementById('characters').required = !mixed;
+            const modelSelect = document.getElementById('image_model');
+            const proHint = document.getElementById('proHint');
+            if (mixed) {
+                document.getElementById('art_style').value = '2D flat vector cartoon (pastel)';
+                modelSelect.value = 'gemini-3-pro-image-preview';
+                proHint.classList.remove('d-none');
+                if (document.querySelectorAll('#photorealCharacterList .character-card').length === 0) {
+                    addCharacterCard('photorealCharacterList');
+                }
+            } else {
+                modelSelect.value = DEFAULT_IMAGE_MODEL;
+                proHint.classList.add('d-none');
+            }
+        });
+
+        // Repopulate model list when provider changes (future-proofing; one provider today)
+        document.getElementById('provider').addEventListener('change', (e) => {
+            const select = document.getElementById('image_model');
+            select.innerHTML = '';
+            PROVIDER_MODELS[e.target.value].image_models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.label;
+                select.appendChild(opt);
+            });
+        });
+
+        // Show the per-character reference images (mixed-media only) so they can be
+        // visually checked during testing. For face-swapped characters, the original
+        // uploaded photo is shown next to the generated reference for comparison.
+        function renderReferences(refs) {
+            const section = document.getElementById('referencesSection');
+            const container = document.getElementById('referencesContainer');
+            container.innerHTML = '';
+            if (!refs || refs.length === 0) {
+                section.classList.add('d-none');
+                return;
+            }
+            refs.forEach(ref => {
+                const genImg = '/images?path=' + encodeURIComponent(ref.path);
+                const name = (ref.name || 'Character');
+                const swapBadge = ref.from_photo ? ' <span class="badge bg-info">face swap</span>' : '';
+                let pair = '';
+                if (ref.upload_path) {
+                    const upImg = '/images?path=' + encodeURIComponent(ref.upload_path);
+                    pair +=
+                        '<div class="text-center me-2">' +
+                          '<img src="' + upImg + '" class="img-thumbnail" style="max-height:160px;">' +
+                          '<small class="text-muted d-block">uploaded</small>' +
+                        '</div>';
+                }
+                pair +=
+                    '<div class="text-center">' +
+                      '<img src="' + genImg + '" class="img-thumbnail" style="max-height:160px;">' +
+                      '<small class="text-muted d-block">generated</small>' +
+                    '</div>';
+                const card = document.createElement('div');
+                card.className = 'col-md-4 mb-3';
+                card.innerHTML =
+                    '<div class="card h-100"><div class="card-body p-2">' +
+                      '<p class="mb-2"><strong></strong> <span class="badge bg-secondary"></span>' + swapBadge + '</p>' +
+                      '<div class="d-flex">' + pair + '</div>' +
+                    '</div></div>';
+                // Set user-controlled text via textContent (avoid HTML injection).
+                card.querySelector('strong').textContent = name;
+                card.querySelector('.badge.bg-secondary').textContent = ref.kind;
+                container.appendChild(card);
+            });
+            section.classList.remove('d-none');
+        }
 
         document.getElementById('storyForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -90,13 +334,27 @@
             document.getElementById('errorDiv').classList.add('d-none');
             document.getElementById('generateBtn').disabled = true;
 
+            const mixedMedia = document.getElementById('mixed_media').checked;
             const payload = {
                 keywords: document.getElementById('keywords').value,
                 characters: document.getElementById('characters').value,
                 setting: document.getElementById('setting').value,
                 story_type: document.getElementById('story_type').value,
-                art_style: document.getElementById('art_style').value
+                art_style: document.getElementById('art_style').value,
+                provider: document.getElementById('provider').value,
+                image_model: document.getElementById('image_model').value,
+                mixed_media: mixedMedia,
+                photoreal_characters: mixedMedia ? collectCharacters('photorealCharacterList') : [],
+                cartoon_characters: mixedMedia ? collectCharacters('cartoonCharacterList') : []
             };
+
+            if (mixedMedia && payload.photoreal_characters.length === 0) {
+                document.getElementById('loadingDiv').classList.add('d-none');
+                document.getElementById('errorDiv').textContent = 'Add at least one photorealistic character (a name or some details).';
+                document.getElementById('errorDiv').classList.remove('d-none');
+                document.getElementById('generateBtn').disabled = false;
+                return;
+            }
 
             try {
                 const response = await fetch('/generate', {
@@ -118,6 +376,8 @@
                 const container = document.getElementById('scenesContainer');
                 container.innerHTML = ''; // Clear previous scenes
                 
+                renderReferences(data.story.character_refs);
+
                 data.story.scenes.forEach((scene, index) => {
                     const imagePath = encodeURIComponent(data.image_paths[index]);
                     const html = `
@@ -137,7 +397,9 @@
                 document.getElementById('errorDiv').textContent = err.message;
                 document.getElementById('errorDiv').classList.remove('d-none');
             } finally {
-                document.getElementById('generateBtn').disabled = false;
+                if (pendingUploads === 0) {
+                    document.getElementById('generateBtn').disabled = false;
+                }
             }
         });
 

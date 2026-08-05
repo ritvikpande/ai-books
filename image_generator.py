@@ -1,10 +1,11 @@
 import os
 import io
+import shutil
 import time
 import logging
 from PIL import Image, ImageDraw, ImageFont
-from google.genai import types
-from config import get_client, IMAGE_MODEL, OUTPUT_DIR
+from config import OUTPUT_DIR
+from prompt_assembly import assemble_reference_prompt, character_label
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -74,56 +75,50 @@ def add_caption(image_path: str, caption_text: str) -> None:
 # Core image generation helpers
 # ---------------------------------------------------------------------------
 
-def _build_contents(prompt: str, context_paths: list) -> list:
-    """Build multimodal contents list: previous images first, then text prompt."""
-    parts = []
+def _load_context_bytes(context_paths: list) -> list:
+    """Read sliding-window context images from disk as PNG bytes."""
+    images = []
     for path in context_paths:
         with open(path, "rb") as f:
-            parts.append(types.Part.from_bytes(data=f.read(), mime_type="image/png"))
-    parts.append(types.Part.from_text(text=prompt))
-    return parts
+            images.append(f.read())
+    return images
 
 
 def _generate_with_context(
     prompt: str,
     context_paths: list,
     output_path: str,
-    caption_text: str = ""
+    provider,
+    model: str,
+    caption_text: str = "",
+    reference_paths: list = None
 ) -> str:
     """
-    Generate one image with optional context images (sliding window).
-    Saves to output_path, applies caption if provided.
-    Returns output_path.
-    """
-    client = get_client()
-    contents = _build_contents(prompt, context_paths)
+    Generate one image with optional context images.
 
+    Context order: character reference images FIRST (stable appearance anchor),
+    then the sliding window of previous pages. Saves to output_path, applies
+    caption if provided. Returns output_path.
+    """
+    reference_paths = reference_paths or []
     logger.info(f"Generating image: {os.path.basename(output_path)} "
-                f"(context: {len(context_paths)} previous image(s))")
+                f"(model: {model}, refs: {len(reference_paths)}, "
+                f"context: {len(context_paths)} previous image(s))")
     start = time.time()
 
-    response = client.models.generate_content(
-        model=IMAGE_MODEL,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE", "TEXT"]
-        )
+    context_images = (
+        _load_context_bytes(reference_paths) + _load_context_bytes(context_paths)
+    )
+    image_data = provider.generate_image(
+        prompt=prompt,
+        context_images=context_images,
+        model=model,
     )
 
     elapsed = time.time() - start
     logger.info(f"Image response received in {elapsed:.1f}s")
 
-    # Extract image bytes
-    image_data = None
-    for part in response.candidates[0].content.parts:
-        if part.inline_data is not None:
-            image_data = part.inline_data.data
-            break
-
-    if image_data is None:
-        raise ValueError("No image returned in response")
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(image_data)
 
@@ -139,15 +134,88 @@ def _generate_with_context(
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_single_image(prompt: str, output_path: str, caption_text: str = "") -> str:
+def generate_single_image(prompt: str, output_path: str, provider, model: str,
+                          caption_text: str = "") -> str:
     """
     Generate a single image from a text prompt (no context).
     Kept for standalone testing.
     """
-    return _generate_with_context(prompt, [], output_path, caption_text)
+    return _generate_with_context(prompt, [], output_path, provider, model, caption_text)
 
 
-def generate_all_images(story: dict, output_dir: str) -> list:
+def generate_reference_images(
+    photoreal_characters: list,
+    cartoon_characters: list,
+    art_style: str,
+    output_dir: str,
+    provider,
+    model: str,
+) -> list:
+    """Generate one standalone reference image per character.
+
+    Order is the reference-ordering invariant shared with the prompt assembler and
+    generate_all_images: photoreal characters first, then cartoon. Saved under
+    <output_dir>/refs/ as <kind>_<index>.png with NO caption (these anchor the
+    characters' appearance and must stay clean). Cartoon characters are skipped
+    entirely when that list is empty.
+
+    Photoreal characters with a usable photo_path (photoreal only — cartoon never
+    has upload UI) pass that photo's bytes as context_images and get a
+    face-preservation prompt; the original photo is copied alongside the
+    generated reference as <kind>_<index>_upload.png. A missing/stale photo_path
+    degrades gracefully to the no-photo path.
+
+    Returns ordered records:
+    [{"kind", "index", "name", "path", "from_photo", "upload_path"}, ...].
+    upload_path is the saved copy of the original uploaded photo when from_photo
+    is True (so the UI can show input vs. output side by side), else None.
+    """
+    refs_dir = os.path.join(output_dir, "refs")
+    os.makedirs(refs_dir, exist_ok=True)
+
+    records = []
+    groups = (
+        ("photoreal", photoreal_characters or []),
+        ("cartoon", cartoon_characters or []),
+    )
+    for kind, chars in groups:
+        for index, char in enumerate(chars, start=1):
+            photo_path = char.get("photo_path") if kind == "photoreal" else None
+            has_photo = bool(photo_path) and os.path.exists(photo_path)
+
+            prompt = assemble_reference_prompt(char, kind, art_style, has_photo=has_photo)
+            label = character_label(char)
+            logger.info(f"Generating {kind} reference {index} ({label})"
+                        f"{' from uploaded photo' if has_photo else ''}")
+            start = time.time()
+
+            context_images = _load_context_bytes([photo_path]) if has_photo else []
+            image_data = provider.generate_image(
+                prompt=prompt, context_images=context_images, model=model
+            )
+
+            logger.info(f"Reference image received in {time.time() - start:.1f}s")
+            path = os.path.join(refs_dir, f"{kind}_{index}.png")
+            with open(path, "wb") as f:
+                f.write(image_data)
+
+            upload_copy_path = None
+            if has_photo:
+                upload_copy_path = os.path.join(refs_dir, f"{kind}_{index}_upload.png")
+                shutil.copyfile(photo_path, upload_copy_path)
+
+            records.append({
+                "kind": kind, "index": index, "name": label,
+                "path": path, "from_photo": has_photo,
+                "upload_path": upload_copy_path,
+            })
+
+    logger.info(f"{len(records)} character reference image(s) generated.")
+    return records
+
+
+def generate_all_images(story: dict, output_dir: str, provider, model: str,
+                        reference_paths: list = None) -> list:
     """
     Generate all 5 scene images using a sliding window of previous images.
 
@@ -157,6 +225,10 @@ def generate_all_images(story: dict, output_dir: str) -> list:
       Scene 3: [scene_1, scene_2]
       Scene 4: [scene_2, scene_3]
       Scene 5: [scene_3, scene_4]
+
+    reference_paths (mixed-media): character reference images attached to EVERY
+    scene before the window, so characters re-anchor to a stable likeness each
+    page. None/[] (classic mode) keeps the original window-only behavior.
 
     Returns list of saved image paths.
     """
@@ -175,14 +247,12 @@ def generate_all_images(story: dict, output_dir: str) -> list:
             prompt=scene["image_prompt"],
             context_paths=context,
             output_path=output_path,
-            caption_text=scene["text"]
+            provider=provider,
+            model=model,
+            caption_text=scene["text"],
+            reference_paths=reference_paths,
         )
         saved_paths.append(output_path)
-
-        # # Sleep between requests to respect rate limits (skip after last scene)
-        # if i < len(scenes) - 1:
-        #     logger.info("Waiting 12s before next image (rate limit)...")
-        #     time.sleep(12)
 
     logger.info(f"All {len(saved_paths)} images generated.")
     return saved_paths
@@ -223,7 +293,16 @@ if __name__ == "__main__":
         "Setting: A bright forest with giant candy canes. Mood: Playful. "
         "Style: watercolor storybook illustration. No text or words in the image."
     )
+    from providers import get_provider
+    from config import DEFAULT_PROVIDER, DEFAULT_IMAGE_MODEL
+
     output_path = os.path.join(OUTPUT_DIR, "test", "scene_1.png")
-    saved = generate_single_image(test_prompt, output_path, caption_text="Mia and Biscuit walk into the candy forest!")
+    saved = generate_single_image(
+        test_prompt,
+        output_path,
+        provider=get_provider(DEFAULT_PROVIDER),
+        model=DEFAULT_IMAGE_MODEL,
+        caption_text="Mia and Biscuit walk into the candy forest!",
+    )
     print(f"\nImage saved to: {saved}")
     Image.open(saved).show()

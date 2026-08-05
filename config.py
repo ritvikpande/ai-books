@@ -4,9 +4,12 @@ from google import genai
 
 load_dotenv()
 
-# Model to use for both text and image generation
+# Model used for story/text generation (image models live in providers.py)
 TEXT_MODEL = "gemini-3-flash-preview"
-IMAGE_MODEL = "gemini-2.5-flash-image"
+
+# Defaults for image generation; must exist in providers.PROVIDERS
+DEFAULT_PROVIDER = "google"
+DEFAULT_IMAGE_MODEL = "gemini-2.5-flash-image"
 
 # Output directory for generated storybooks
 OUTPUT_DIR = "outputs"
