@@ -200,22 +200,24 @@ Each finding: **What · Where · Why it matters · Refactor strategy · Why bett
 
 Impact = user/£ risk if left alone. Effort: S ≤ ~1h, M ≈ half-day, L ≈ multi-day. "Agent" = safe for a cheap/mechanical model (✅) vs needs judgment + review (🧠).
 
-| ID | Finding | Impact | Effort | Depends on | Agent |
-|----|---------|--------|--------|------------|-------|
-| SEC-1 | Arbitrary file read/write via `/images` & `/download_pdf` | **High** | M | — | 🧠 |
-| SEC-2 | Unauthenticated money-spending `/generate` | **High** | S (interim) / L (full) | — / migration | 🧠 (ops parts ✅) |
-| PERF/OPS-3 | 120s timeout < gen time; ephemeral FS | **High** | S (interim) / L (full) | — / migration | ✅ interim / 🧠 full |
-| COST/OBS-4 | No `usage_metadata` logging | **High** | S | — | ✅ |
-| CORR-5 | No retry/backoff; unguarded `candidates[0]` | **High** | S–M | — | 🧠 (light) |
-| ARCH-6 | Service-layer extraction from `/generate` | Med | M | — | 🧠 |
-| PERF-7 | Parallelize refs; overlap story+refs | Med | M | ARCH-6 | 🧠 |
-| DUP-8 | Duplicated `client` fixture; text bypass | Med | S | (text seam: COST/OBS-4) | ✅ (fixture) |
-| PERF-9 | New `genai.Client` per call | Med | S | — | ✅ |
-| DEADCODE-10 | Internal-only `generate_single_image` | Low | S | — | ✅ (grep first) |
-| OPS-11 | Docker/deps hygiene | Low | S | — | ✅ |
-| DOC-12 | Doc drift; error leak; idempotency | Low | S | — | ✅ |
+| ID | Finding | Impact | Effort | Depends on | Agent | Status |
+|----|---------|--------|--------|------------|-------|--------|
+| SEC-1 | Arbitrary file read/write via `/images` & `/download_pdf` | **High** | M | — | 🧠 | ✅ Done (`ccf88e7`) |
+| SEC-2 | Unauthenticated money-spending `/generate` | **High** | S (interim) / L (full) | — / migration | 🧠 (ops parts ✅) | ✅ Interim done (`e3a729c`); full fix is migration-scope |
+| PERF/OPS-3 | 120s timeout < gen time; ephemeral FS | **High** | S (interim) / L (full) | — / migration | ✅ interim / 🧠 full | ✅ Interim done (`97f92d8`, timeout→300s); full fix is migration-scope |
+| COST/OBS-4 | No `usage_metadata` logging | **High** | S | — | ✅ | ✅ Done (`4e902b7`) |
+| CORR-5 | No retry/backoff; unguarded `candidates[0]` | **High** | S–M | — | 🧠 (light) | ✅ Done (`d5a8b05`) |
+| ARCH-6 | Service-layer extraction from `/generate` | Med | M | — | 🧠 | ✅ Done (`30166ec`) |
+| PERF-7 | Parallelize refs; overlap story+refs | Med | M | ARCH-6 | 🧠 | ✅ Done (`43e6616`) |
+| DUP-8 | Duplicated `client` fixture; text bypass | Med | S | (text seam: COST/OBS-4) | ✅ (fixture) | ✅ Fixture done (`86b07f4`); text-provider seam not done (optional scope) |
+| PERF-9 | New `genai.Client` per call | Med | S | — | ✅ | ✅ Done (`4e902b7`) |
+| DEADCODE-10 | Internal-only `generate_single_image` | Low | S | — | ✅ (grep first) | ⬜ Not done — re-grepped 2026-08-04, still only referenced by the `__main__` demo; safe to remove whenever, just not part of this round |
+| OPS-11 | Docker/deps hygiene | Low | S | — | ✅ | ✅ Done (`97f92d8`) |
+| DOC-12 | Doc drift; error leak; idempotency | Low | S | — | ✅ | ✅ Done (`2a2ced6`) — idempotency guard on double-submit not implemented, deliberately deferred (see below) |
 
 **Recommended order.** Do the cheap, high-value, dependency-free wins first (COST/OBS-4, PERF-9, DUP-8, OPS-11, DOC-12 — all ✅), which also instrument cost before you spend on experiments. Then the security/correctness High items (SEC-1, SEC-2 interim, CORR-5, PERF/OPS-3 interim). Then the architectural spine (ARCH-6 → PERF-7). The durable versions of SEC-1/SEC-2/PERF-3 land with the Next.js migration.
+
+**Implementation status (2026-08-04):** 11 of 12 findings implemented on branch `refactor/fable-suggestions` (98 → 156 passing tests, all TDD, zero regressions). Deliberately not done in this round: DEADCODE-10 (trivial, just wasn't picked up), the DUP-8 text-provider seam (optional sub-scope), and DOC-12's idempotency guard on `/generate`'s double-submit (mentioned in the original finding text but not carried into the executed plan — still open). The Cost Lever #1 *routing infrastructure* (`model_routing.py`) was also built as a bonus, ahead of the priority list, since it was cheap to add alongside ARCH-6/PERF-7 — see `BookCostOptimization.md`.
 
 ---
 
