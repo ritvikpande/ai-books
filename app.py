@@ -1,9 +1,7 @@
 import os
 import json
 import re
-import time
 import uuid
-import datetime
 import logging
 from io import BytesIO
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
@@ -12,7 +10,8 @@ from PIL import Image
 from story_generator import generate_story
 from image_generator import generate_all_images, generate_reference_images, generate_pdf
 from config import OUTPUT_DIR, DEFAULT_PROVIDER, DEFAULT_IMAGE_MODEL
-from providers import get_provider, validate_model, providers_meta
+from providers import validate_model, providers_meta
+import story_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -23,7 +22,6 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8MB cap on uploaded photos
 # Structured-character handling (mixed-media mode)
 CHARACTER_FIELDS = ("name", "skin_tone", "hair_color", "body_type", "height",
                     "description", "photo_path")
-MAX_CHARACTERS = 6  # soft cap to bound request size / cost across refs + window
 
 # Photo upload handling (face-swap reference photos)
 ALLOWED_PHOTO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
@@ -122,12 +120,6 @@ def _resolve_story_asset(story_id: str, filename: str) -> str:
     return full_path
 
 
-def _relative_filename(path: str, story_dir: str) -> str:
-    """POSIX-style ('/'-separated) path of `path` relative to `story_dir`,
-    for embedding in API responses instead of an absolute filesystem path."""
-    return os.path.relpath(path, story_dir).replace(os.sep, "/")
-
-
 @app.route('/upload_photo', methods=['POST'])
 def upload_photo():
     file = request.files.get('photo')
@@ -172,88 +164,33 @@ def generate():
     photoreal_characters = _normalize_characters(data.get('photoreal_characters'))
     cartoon_characters = _normalize_characters(data.get('cartoon_characters'))
 
-    if mixed_media:
-        if not keywords or not setting:
-            return jsonify({"error": "Please fill in Keywords and Setting."}), 400
-        if not photoreal_characters:
-            return jsonify({"error": "Add at least one photorealistic character."}), 400
-        if len(photoreal_characters) + len(cartoon_characters) > MAX_CHARACTERS:
-            return jsonify({"error": f"Too many characters (max {MAX_CHARACTERS})."}), 400
-    else:
-        if not keywords or not characters or not setting:
-            return jsonify({"error": "Please fill in Keywords, Characters, and Setting."}), 400
-
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    story_dir = os.path.join(OUTPUT_DIR, f"story_{timestamp}")
-    os.makedirs(story_dir, exist_ok=True)
+    try:
+        story_service.validate_inputs(
+            keywords=keywords, characters=characters, setting=setting,
+            mixed_media=mixed_media, photoreal_characters=photoreal_characters,
+            cartoon_characters=cartoon_characters,
+        )
+    except story_service.GenerationError as e:
+        return jsonify({"error": str(e)}), 400
 
     try:
-        total_start = time.time()
-        provider = get_provider(provider_id)
-
-        # Generate story
-        story = generate_story(
+        result = story_service.generate_book(
             keywords=keywords,
-            characters=characters or "",
+            characters=characters,
             setting=setting,
             story_type=story_type,
             art_style=art_style,
             mixed_media=mixed_media,
             photoreal_characters=photoreal_characters,
             cartoon_characters=cartoon_characters,
+            provider_id=provider_id,
+            image_model=image_model,
+            output_dir=OUTPUT_DIR,
+            generate_story_fn=generate_story,
+            generate_reference_images_fn=generate_reference_images,
+            generate_all_images_fn=generate_all_images,
         )
-
-        # Mixed-media: generate one reference image per character first, then
-        # attach them to every scene so characters stay consistent.
-        reference_paths = None
-        if mixed_media:
-            refs = generate_reference_images(
-                photoreal_characters, cartoon_characters, art_style,
-                story_dir, provider, image_model,
-            )
-            reference_paths = [r["path"] for r in refs]
-            story["character_refs"] = refs
-
-        with open(os.path.join(story_dir, "story.json"), "w") as f:
-            json.dump(story, f, indent=2)
-
-        # Generate all images
-        image_paths = generate_all_images(
-            story, story_dir, provider, image_model,
-            reference_paths=reference_paths,
-        )
-
-        total_elapsed = time.time() - total_start
-        logger.info(f"Total generation time: {total_elapsed:.1f}s")
-
-        # Never send filesystem paths to the browser — only a story_id and
-        # filenames relative to it, resolved back through /images (SEC-1).
-        story_id = os.path.basename(story_dir)
-        response_story = dict(story)
-        if response_story.get("character_refs"):
-            response_story["character_refs"] = [
-                {
-                    "kind": ref["kind"],
-                    "index": ref["index"],
-                    "name": ref["name"],
-                    "from_photo": ref.get("from_photo", False),
-                    "filename": _relative_filename(ref["path"], story_dir),
-                    "upload_filename": (
-                        _relative_filename(ref["upload_path"], story_dir)
-                        if ref.get("upload_path") else None
-                    ),
-                }
-                for ref in response_story["character_refs"]
-            ]
-
-        return jsonify({
-            "message": "Success",
-            "story": response_story,
-            "story_id": story_id,
-            "image_filenames": [_relative_filename(p, story_dir) for p in image_paths],
-            "story_title": story["title"],
-            "time_elapsed": round(total_elapsed, 1)
-        })
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"Generation error: {e}")
