@@ -224,7 +224,7 @@ def generate():
 
     except Exception as e:
         logger.error(f"Generation error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Could not generate story."}), 500
 
 # Endpoint to serve generated images to the frontend. Assets are looked up
 # by story_id + filename (never a client-supplied filesystem path) and
@@ -269,4 +269,10 @@ def download_pdf():
         return jsonify({"error": "Could not generate PDF."}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Local dev entry point only — the container runs gunicorn (see
+    # Dockerfile), which never imports/executes this block, so this
+    # debug=True default can't leak into production regardless. Still gate
+    # it explicitly rather than hardcoding True, so a developer has to
+    # actively opt in rather than it being silently always-on.
+    debug_mode = os.getenv("FLASK_DEBUG", "false").lower() in ("1", "true", "yes")
+    app.run(debug=debug_mode, host='0.0.0.0', port=5000)

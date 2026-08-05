@@ -60,11 +60,15 @@ gcloud run deploy storybook-app \
 ## Project Structure
 
 - `config.py` - API client setup, constants
-- `story_generator.py` - Story text and image prompt generation via Gemini
+- `providers.py` - Gemini image-provider abstraction: retry/backoff, client reuse, usage-token logging
+- `model_routing.py` - Resolves which model each pipeline step uses (cost-experiment routing)
+- `rate_limit.py` - Interim per-IP rate limiter for `/generate`
 - `prompt_assembly.py` - Pure helpers that assemble mixed-media and character-reference image prompts
+- `story_generator.py` - Story text and image prompt generation via Gemini
 - `image_generator.py` - Image generation with sliding-window context + per-character reference images
-- `app.py` - Flask backend (routes: `/`, `/generate`, `/upload_photo`, `/images`, `/download_pdf`)
+- `story_service.py` - Generation pipeline orchestration (no Flask dependency)
+- `app.py` - Flask backend (routes: `/`, `/generate`, `/upload_photo`, `/images/<story_id>/<filename>`, `/download_pdf`)
 - `templates/index.html` - Frontend UI
 - `Dockerfile` - Container image (gunicorn on port 5000)
 
-> **Cost note (measured 2026-06-17):** a 5-page mixed-media book with face-swap on Gemini 3 Pro Image cost ~CAD 3.5–3.8 (8 API calls, 0 errors; 7 Pro image requests + 1 Flash text request) — over the POC's $3 ceiling. The per-book cost on Pro does not scale; cost reduction is the main open problem before scaling. See `.claude/CLAUDE.md` → Cost Estimate.
+> **Cost note (measured 2026-06-17):** a 5-page mixed-media book with face-swap on Gemini 3 Pro Image cost ~CAD 3.5–3.8 (8 API calls, 0 errors; 7 Pro image requests + 1 Flash text request) — over the POC's $3 ceiling. The per-book cost on Pro does not scale; cost reduction is the main open problem before scaling. See [`BookCostOptimization.md`](BookCostOptimization.md) for the ranked reduction levers.

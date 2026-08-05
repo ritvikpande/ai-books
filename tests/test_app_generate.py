@@ -206,3 +206,25 @@ def test_classic_mode_does_not_generate_references(client, monkeypatch, tmp_path
 
     assert resp.status_code == 200
     assert captured["reference_paths"] is None
+
+
+def test_generate_returns_generic_error_on_500(client, monkeypatch, tmp_path):
+    # DOC-12: an internal exception's message must never reach the client
+    # (path/detail leak) — it goes to the server log only.
+    monkeypatch.setattr(app_module, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(app_module, "generate_story", lambda **k: _story())
+
+    def boom(*a, **k):
+        raise RuntimeError("internal detail: C:/secret/path leaked here")
+
+    monkeypatch.setattr(app_module, "generate_all_images", boom)
+
+    resp = client.post("/generate", json={
+        "keywords": "ice cream", "characters": "Mia", "setting": "a forest",
+        "provider": "google", "image_model": "gemini-2.5-flash-image",
+    })
+
+    assert resp.status_code == 500
+    error = resp.get_json()["error"]
+    assert "internal detail" not in error
+    assert "secret" not in error
