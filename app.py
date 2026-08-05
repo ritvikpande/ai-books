@@ -11,6 +11,7 @@ from story_generator import generate_story
 from image_generator import generate_all_images, generate_reference_images, generate_pdf
 from config import OUTPUT_DIR, DEFAULT_PROVIDER, DEFAULT_IMAGE_MODEL
 from providers import validate_model, providers_meta
+from rate_limit import RateLimiter
 import story_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
@@ -18,6 +19,17 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8MB cap on uploaded photos
+
+# SEC-2 interim: /generate spends real money per call and is otherwise
+# unauthenticated, so throttle it per client IP. Skipped under TESTING so
+# the rest of the suite (many /generate calls sharing one Flask app
+# instance across the whole test session) isn't flaky from accumulated
+# hits — see tests/test_generate_rate_limit.py for the enforcement tests.
+# The durable fix is real per-user auth at the Next.js migration's API
+# boundary (see NextJSWebDesign.md), not a distributed limiter for a POC.
+GENERATE_RATE_LIMIT = 5       # calls
+GENERATE_RATE_WINDOW = 60.0  # seconds
+_generate_limiter = RateLimiter(GENERATE_RATE_LIMIT, GENERATE_RATE_WINDOW)
 
 # Structured-character handling (mixed-media mode)
 CHARACTER_FIELDS = ("name", "skin_tone", "hair_color", "body_type", "height",
@@ -146,6 +158,12 @@ def index():
 
 @app.route('/generate', methods=['POST'])
 def generate():
+    if not app.config.get("TESTING") and not _generate_limiter.allow(request.remote_addr or "unknown"):
+        resp = jsonify({"error": "Too many requests. Please wait a moment and try again."})
+        resp.status_code = 429
+        resp.headers["Retry-After"] = str(int(GENERATE_RATE_WINDOW))
+        return resp
+
     data = request.json
     keywords = data.get('keywords')
     characters = data.get('characters')
