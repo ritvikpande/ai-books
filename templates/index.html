@@ -86,6 +86,16 @@
                         </select>
                         <small id="proHint" class="text-muted d-none">Pro recommended — Flash is weak at photorealistic characters.</small>
                     </div>
+                    <div class="mb-3 d-none" id="sceneImageModelField">
+                        <label class="form-label">Scene Image Model <small class="text-muted">(experimental cost test)</small></label>
+                        <select class="form-select" id="scene_image_model">
+                            <option value="">Same as Image Model</option>
+                            {% for m in providers[default_provider].image_models %}
+                            <option value="{{ m.id }}">{{ m.label }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">Routes the cartoon reference and all 5 scenes to this model, while the photorealistic reference above stays on Image Model. Untested — quality for face-anchored scenes isn't verified yet.</small>
+                    </div>
                     <button type="submit" class="btn btn-primary w-100" id="generateBtn">Generate Story</button>
                 </form>
             </div>
@@ -256,6 +266,8 @@
             document.getElementById('characters').required = !mixed;
             const modelSelect = document.getElementById('image_model');
             const proHint = document.getElementById('proHint');
+            const sceneModelField = document.getElementById('sceneImageModelField');
+            sceneModelField.classList.toggle('d-none', !mixed);
             if (mixed) {
                 document.getElementById('art_style').value = '2D flat vector cartoon (pastel)';
                 modelSelect.value = 'gemini-3-pro-image-preview';
@@ -266,18 +278,30 @@
             } else {
                 modelSelect.value = DEFAULT_IMAGE_MODEL;
                 proHint.classList.add('d-none');
+                document.getElementById('scene_image_model').value = '';
             }
         });
 
         // Repopulate model list when provider changes (future-proofing; one provider today)
         document.getElementById('provider').addEventListener('change', (e) => {
+            const models = PROVIDER_MODELS[e.target.value].image_models;
+
             const select = document.getElementById('image_model');
             select.innerHTML = '';
-            PROVIDER_MODELS[e.target.value].image_models.forEach(m => {
+            models.forEach(m => {
                 const opt = document.createElement('option');
                 opt.value = m.id;
                 opt.textContent = m.label;
                 select.appendChild(opt);
+            });
+
+            const sceneSelect = document.getElementById('scene_image_model');
+            sceneSelect.innerHTML = '<option value="">Same as Image Model</option>';
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.label;
+                sceneSelect.appendChild(opt);
             });
         });
 
@@ -349,6 +373,7 @@
                 art_style: document.getElementById('art_style').value,
                 provider: document.getElementById('provider').value,
                 image_model: document.getElementById('image_model').value,
+                scene_image_model: mixedMedia ? document.getElementById('scene_image_model').value : '',
                 mixed_media: mixedMedia,
                 photoreal_characters: mixedMedia ? collectCharacters('photorealCharacterList') : [],
                 cartoon_characters: mixedMedia ? collectCharacters('cartoonCharacterList') : []

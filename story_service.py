@@ -24,6 +24,7 @@ from image_generator import (
     generate_reference_images as _default_generate_reference_images,
 )
 from providers import get_provider
+from model_routing import model_for_step
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +69,20 @@ def generate_book(
     provider_id: str,
     image_model: str,
     output_dir: str,
+    scene_image_model: str = None,
     generate_story_fn=_default_generate_story,
     generate_reference_images_fn=_default_generate_reference_images,
     generate_all_images_fn=_default_generate_all_images,
 ) -> dict:
     """Run the full story -> references -> scenes pipeline and persist it.
+
+    scene_image_model (Cost Lever #1 enabler — see BookCostOptimization.md):
+    optional cheaper-model override for the cartoon reference and all scene
+    images, while the photoreal (face-bearing) reference always stays on
+    image_model. Falsy/omitted means "same as image_model" everywhere —
+    today's single-model behavior, unchanged when this isn't set. This is
+    routing *infrastructure* for an unverified cost experiment, not a
+    quality claim — see model_routing.model_for_step.
 
     Returns a JSON-serializable dict: message, story, story_id,
     image_filenames, story_title, time_elapsed. Never contains an absolute
@@ -105,12 +115,15 @@ def generate_book(
     # Classic mode has no references at all, so there's nothing to overlap.
     reference_paths = None
     if mixed_media:
+        photoreal_model = model_for_step("photoreal_reference", image_model, scene_image_model)
+        cartoon_model = model_for_step("cartoon_reference", image_model, scene_image_model)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             story_future = executor.submit(generate_story_fn, **story_kwargs)
             refs_future = executor.submit(
                 generate_reference_images_fn,
                 photoreal_characters, cartoon_characters, art_style,
-                story_dir, provider, image_model,
+                story_dir, provider, photoreal_model, cartoon_model=cartoon_model,
             )
             story = story_future.result()
             refs = refs_future.result()
@@ -122,8 +135,11 @@ def generate_book(
     with open(os.path.join(story_dir, "story.json"), "w") as f:
         json.dump(story, f, indent=2)
 
+    resolved_scene_model = (
+        model_for_step("scene", image_model, scene_image_model) if mixed_media else image_model
+    )
     image_paths = generate_all_images_fn(
-        story, story_dir, provider, image_model,
+        story, story_dir, provider, resolved_scene_model,
         reference_paths=reference_paths,
     )
 

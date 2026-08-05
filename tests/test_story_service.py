@@ -29,10 +29,10 @@ class _RecordingFakes:
             "scenes": [{"scene_number": n, "text": "t", "image_prompt": "p"} for n in range(1, 6)],
         }
 
-    def refs_fn(self, photoreal, cartoon, art_style, output_dir, provider, model):
+    def refs_fn(self, photoreal, cartoon, art_style, output_dir, provider, model, cartoon_model=None):
         self.ref_calls.append({
-            "photoreal": photoreal, "cartoon": cartoon,
-            "art_style": art_style, "output_dir": output_dir, "model": model,
+            "photoreal": photoreal, "cartoon": cartoon, "art_style": art_style,
+            "output_dir": output_dir, "model": model, "cartoon_model": cartoon_model,
         })
         self.ref_return = [
             {
@@ -165,7 +165,7 @@ def test_generate_book_mixed_media_threads_reference_paths(tmp_path):
 def test_generate_book_computes_upload_filename_when_from_photo(tmp_path):
     fakes = _RecordingFakes()
 
-    def refs_with_photo(photoreal, cartoon, art_style, output_dir, provider, model):
+    def refs_with_photo(photoreal, cartoon, art_style, output_dir, provider, model, cartoon_model=None):
         fakes.ref_return = [{
             "kind": "photoreal", "index": 1, "name": "Dad",
             "path": os.path.join(output_dir, "refs", "photoreal_1.png"),
@@ -234,7 +234,7 @@ def test_generate_book_overlaps_story_and_reference_generation(tmp_path):
             "scenes": [{"scene_number": n, "text": "t", "image_prompt": "p"} for n in range(1, 6)],
         }
 
-    def slow_refs_fn(photoreal, cartoon, art_style, output_dir, provider, model):
+    def slow_refs_fn(photoreal, cartoon, art_style, output_dir, provider, model, cartoon_model=None):
         start = time.monotonic()
         time.sleep(0.05)
         with lock:
@@ -285,3 +285,74 @@ def test_generate_book_classic_mode_does_not_overlap_anything(tmp_path):
     assert len(fakes.story_calls) == 1
     assert len(fakes.ref_calls) == 0
     assert result["story"]["title"] == "T"
+
+
+# --- Cost Lever #1 enabler: scene_image_model routing ------------------------
+
+def test_generate_book_without_scene_image_model_uses_one_model_everywhere(tmp_path):
+    # Unchanged default behavior: no override -> model_for_step resolves
+    # cartoon_model to the same value as the main model (not None — the
+    # fallback is applied once, at this layer), and scenes use image_model,
+    # exactly like before this feature existed.
+    fakes = _RecordingFakes()
+
+    story_service.generate_book(
+        keywords="x", characters="", setting="y",
+        story_type="adventure", art_style="2D flat vector cartoon (pastel)",
+        mixed_media=True,
+        photoreal_characters=[{"name": "Dad"}], cartoon_characters=[{"name": "Lily"}],
+        provider_id="google", image_model="pro-model",
+        output_dir=str(tmp_path),
+        generate_story_fn=fakes.story_fn,
+        generate_reference_images_fn=fakes.refs_fn,
+        generate_all_images_fn=fakes.images_fn,
+    )
+
+    assert fakes.ref_calls[0]["model"] == "pro-model"
+    assert fakes.ref_calls[0]["cartoon_model"] == "pro-model"
+    assert fakes.image_calls[0]["model"] == "pro-model"
+
+
+def test_generate_book_with_scene_image_model_routes_cartoon_and_scenes(tmp_path):
+    # Photoreal reference stays on the main (Pro) model; cartoon reference
+    # and all scenes route to the cheaper scene_image_model.
+    fakes = _RecordingFakes()
+
+    story_service.generate_book(
+        keywords="x", characters="", setting="y",
+        story_type="adventure", art_style="2D flat vector cartoon (pastel)",
+        mixed_media=True,
+        photoreal_characters=[{"name": "Dad"}], cartoon_characters=[{"name": "Lily"}],
+        provider_id="google", image_model="pro-model",
+        scene_image_model="flash-model",
+        output_dir=str(tmp_path),
+        generate_story_fn=fakes.story_fn,
+        generate_reference_images_fn=fakes.refs_fn,
+        generate_all_images_fn=fakes.images_fn,
+    )
+
+    assert fakes.ref_calls[0]["model"] == "pro-model"          # photoreal ref
+    assert fakes.ref_calls[0]["cartoon_model"] == "flash-model"  # cartoon ref
+    assert fakes.image_calls[0]["model"] == "flash-model"       # scenes
+
+
+def test_generate_book_classic_mode_ignores_scene_image_model(tmp_path):
+    # Classic mode has no photoreal/cartoon split to route between — the
+    # single image_model is used, and scene_image_model is simply unused.
+    fakes = _RecordingFakes()
+
+    story_service.generate_book(
+        keywords="x", characters="Mia", setting="y",
+        story_type="adventure", art_style="watercolor storybook illustration",
+        mixed_media=False,
+        photoreal_characters=[], cartoon_characters=[],
+        provider_id="google", image_model="flash-model",
+        scene_image_model="pro-model",  # irrelevant in classic mode
+        output_dir=str(tmp_path),
+        generate_story_fn=fakes.story_fn,
+        generate_reference_images_fn=fakes.refs_fn,
+        generate_all_images_fn=fakes.images_fn,
+    )
+
+    assert len(fakes.ref_calls) == 0
+    assert fakes.image_calls[0]["model"] == "flash-model"

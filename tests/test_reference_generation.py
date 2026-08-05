@@ -224,3 +224,25 @@ def test_reference_order_preserved_under_concurrency(tmp_path):
 
     assert [r["name"] for r in records] == ["Dad", "Mom", "Lily"]
     assert [r["kind"] for r in records] == ["photoreal", "photoreal", "cartoon"]
+
+
+# --- Cost Lever #1 enabler: per-kind model routing ---------------------------
+
+def test_cartoon_model_defaults_to_main_model_when_not_given(tmp_path):
+    provider = FakeProvider()
+    generate_reference_images(
+        [{"name": "Dad"}], [{"name": "Lily"}], STYLE, str(tmp_path), provider, "pro-model",
+    )
+    assert all(c["model"] == "pro-model" for c in provider.calls)
+
+
+def test_cartoon_model_overrides_only_cartoon_jobs(tmp_path):
+    provider = FakeProvider()
+    generate_reference_images(
+        [{"name": "Dad"}], [{"name": "Lily"}], STYLE, str(tmp_path), provider, "pro-model",
+        cartoon_model="flash-model",
+    )
+    photoreal_call = next(c for c in provider.calls if "real person" in c["prompt"])
+    cartoon_call = next(c for c in provider.calls if "2D watercolor storybook illustration" in c["prompt"])
+    assert photoreal_call["model"] == "pro-model"
+    assert cartoon_call["model"] == "flash-model"

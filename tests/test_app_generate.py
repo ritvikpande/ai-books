@@ -19,7 +19,8 @@ def test_index_renders_character_ui(client):
     for token in ("photorealCharacterList", "cartoonCharacterList",
                   "addPhotorealBtn", "addCartoonBtn", "proHint",
                   "field-photo-input", "/upload_photo",
-                  "referencesContainer", "renderReferences"):
+                  "referencesContainer", "renderReferences",
+                  "sceneImageModelField", "scene_image_model"):
         assert token in body
 
 
@@ -97,8 +98,8 @@ def test_mixed_media_threads_arrays_and_reference_paths(client, monkeypatch, tmp
         captured["story_kwargs"] = kwargs
         return _story()
 
-    def fake_refs(photoreal, cartoon, art_style, output_dir, provider, model):
-        captured["ref_call"] = (photoreal, cartoon, art_style, model)
+    def fake_refs(photoreal, cartoon, art_style, output_dir, provider, model, cartoon_model=None):
+        captured["ref_call"] = (photoreal, cartoon, art_style, model, cartoon_model)
         return [{"kind": "photoreal", "index": 1, "name": "Dad",
                  "path": f"{output_dir}/refs/photoreal_1.png"}]
 
@@ -126,6 +127,60 @@ def test_mixed_media_threads_arrays_and_reference_paths(client, monkeypatch, tmp
     assert len(captured["reference_paths"]) == 1
     assert captured["reference_paths"][0].endswith("photoreal_1.png")
     assert captured["story_has_refs"] is True
+
+
+def test_scene_image_model_routes_cartoon_ref_and_scenes(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, "OUTPUT_DIR", str(tmp_path))
+    captured = {}
+
+    def fake_refs(photoreal, cartoon, art_style, output_dir, provider, model, cartoon_model=None):
+        captured["ref_model"] = model
+        captured["ref_cartoon_model"] = cartoon_model
+        return [{"kind": "photoreal", "index": 1, "name": "Dad",
+                 "path": f"{output_dir}/refs/photoreal_1.png"}]
+
+    def fake_images(story, output_dir, provider, model, reference_paths=None):
+        captured["scene_model"] = model
+        return [f"{output_dir}/scene_{n}.png" for n in range(1, 6)]
+
+    monkeypatch.setattr(app_module, "generate_story", lambda **k: _story())
+    monkeypatch.setattr(app_module, "generate_reference_images", fake_refs)
+    monkeypatch.setattr(app_module, "generate_all_images", fake_images)
+
+    resp = client.post("/generate", json={
+        "keywords": "playground", "setting": "a park", "mixed_media": True,
+        "photoreal_characters": [{"name": "Dad"}], "cartoon_characters": [{"name": "Lily"}],
+        "provider": "google", "image_model": "gemini-3-pro-image-preview",
+        "scene_image_model": "gemini-2.5-flash-image",
+    })
+
+    assert resp.status_code == 200
+    assert captured["ref_model"] == "gemini-3-pro-image-preview"          # photoreal stays on Pro
+    assert captured["ref_cartoon_model"] == "gemini-2.5-flash-image"      # cartoon routes to Flash
+    assert captured["scene_model"] == "gemini-2.5-flash-image"           # scenes route to Flash
+
+
+def test_unknown_scene_image_model_returns_400(client, monkeypatch, tmp_path):
+    # Never rely on validation-order assumptions alone to keep a test from
+    # reaching the real pipeline: always mock it too, so a missing/buggy
+    # validation check fails fast on an assertion instead of silently
+    # falling through to a real (paid) Gemini API call.
+    monkeypatch.setattr(app_module, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(app_module, "generate_story", lambda **k: _story())
+    monkeypatch.setattr(app_module, "generate_reference_images",
+                         lambda *a, **k: (_ for _ in ()).throw(
+                             AssertionError("must not reach generation: invalid scene_image_model")))
+    monkeypatch.setattr(app_module, "generate_all_images",
+                         lambda *a, **k: (_ for _ in ()).throw(
+                             AssertionError("must not reach generation: invalid scene_image_model")))
+
+    resp = client.post("/generate", json={
+        "keywords": "x", "setting": "y", "mixed_media": True,
+        "photoreal_characters": [{"name": "Dad"}], "provider": "google",
+        "image_model": "gemini-3-pro-image-preview",
+        "scene_image_model": "dall-e-3",
+    })
+    assert resp.status_code == 400
 
 
 def test_classic_mode_does_not_generate_references(client, monkeypatch, tmp_path):

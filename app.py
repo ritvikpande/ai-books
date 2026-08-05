@@ -178,6 +178,17 @@ def generate():
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
+    # Cost Lever #1 enabler (BookCostOptimization.md): optional cheaper-model
+    # override for the cartoon reference + all scenes, while the photoreal
+    # (face-bearing) reference always stays on image_model. Empty/omitted
+    # means "same as image_model" everywhere — unchanged default behavior.
+    scene_image_model = data.get('scene_image_model') or None
+    if scene_image_model:
+        try:
+            validate_model(provider_id, scene_image_model)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
     mixed_media = bool(data.get('mixed_media'))
     photoreal_characters = _normalize_characters(data.get('photoreal_characters'))
     cartoon_characters = _normalize_characters(data.get('cartoon_characters'))
@@ -204,6 +215,7 @@ def generate():
             provider_id=provider_id,
             image_model=image_model,
             output_dir=OUTPUT_DIR,
+            scene_image_model=scene_image_model,
             generate_story_fn=generate_story,
             generate_reference_images_fn=generate_reference_images,
             generate_all_images_fn=generate_all_images,

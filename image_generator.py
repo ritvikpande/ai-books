@@ -148,7 +148,7 @@ def generate_single_image(prompt: str, output_path: str, provider, model: str,
     return _generate_with_context(prompt, [], output_path, provider, model, caption_text)
 
 
-def _generate_one_reference(kind, index, char, art_style, refs_dir, provider, model) -> dict:
+def _generate_one_reference(kind, index, char, model, art_style, refs_dir, provider) -> dict:
     """Generate, save, and build the record for one character's reference
     image. Runs on a worker thread — see generate_reference_images."""
     photo_path = char.get("photo_path") if kind == "photoreal" else None
@@ -189,6 +189,7 @@ def generate_reference_images(
     output_dir: str,
     provider,
     model: str,
+    cartoon_model: str = None,
 ) -> list:
     """Generate one standalone reference image per character.
 
@@ -204,6 +205,11 @@ def generate_reference_images(
     generated reference as <kind>_<index>_upload.png. A missing/stale photo_path
     degrades gracefully to the no-photo path.
 
+    cartoon_model (Cost Lever #1 enabler): optional override so cartoon
+    references can use a cheaper model than the photoreal (face-bearing)
+    reference. Falsy (None/"") means "same as model" — today's behavior,
+    unchanged when this isn't set. See model_routing.model_for_step.
+
     Each character's reference is independent of every other, so they're
     generated concurrently (bounded by MAX_REFERENCE_WORKERS) via
     ThreadPoolExecutor.map, which preserves the reference-ordering invariant
@@ -218,12 +224,12 @@ def generate_reference_images(
     os.makedirs(refs_dir, exist_ok=True)
 
     groups = (
-        ("photoreal", photoreal_characters or []),
-        ("cartoon", cartoon_characters or []),
+        ("photoreal", photoreal_characters or [], model),
+        ("cartoon", cartoon_characters or [], cartoon_model or model),
     )
     jobs = [
-        (kind, index, char)
-        for kind, chars in groups
+        (kind, index, char, kind_model)
+        for kind, chars, kind_model in groups
         for index, char in enumerate(chars, start=1)
     ]
     if not jobs:
@@ -233,7 +239,7 @@ def generate_reference_images(
         max_workers=min(len(jobs), MAX_REFERENCE_WORKERS)
     ) as executor:
         records = list(executor.map(
-            lambda job: _generate_one_reference(*job, art_style, refs_dir, provider, model),
+            lambda job: _generate_one_reference(*job, art_style, refs_dir, provider),
             jobs,
         ))
 
