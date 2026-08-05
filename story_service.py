@@ -16,6 +16,7 @@ import json
 import time
 import logging
 import datetime
+import concurrent.futures
 
 from story_generator import generate_story as _default_generate_story
 from image_generator import (
@@ -86,7 +87,7 @@ def generate_book(
     total_start = time.time()
     provider = get_provider(provider_id)
 
-    story = generate_story_fn(
+    story_kwargs = dict(
         keywords=keywords,
         characters=characters or "",
         setting=setting,
@@ -97,16 +98,26 @@ def generate_book(
         cartoon_characters=cartoon_characters,
     )
 
-    # Mixed-media: generate one reference image per character first, then
-    # attach them to every scene so characters stay consistent.
+    # Mixed-media: the story text and the character references depend on
+    # neither each other (refs need only the form characters; the story
+    # doesn't read the refs), so run them concurrently (PERF-7) and attach
+    # the refs to every scene afterward so characters stay consistent.
+    # Classic mode has no references at all, so there's nothing to overlap.
     reference_paths = None
     if mixed_media:
-        refs = generate_reference_images_fn(
-            photoreal_characters, cartoon_characters, art_style,
-            story_dir, provider, image_model,
-        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            story_future = executor.submit(generate_story_fn, **story_kwargs)
+            refs_future = executor.submit(
+                generate_reference_images_fn,
+                photoreal_characters, cartoon_characters, art_style,
+                story_dir, provider, image_model,
+            )
+            story = story_future.result()
+            refs = refs_future.result()
         reference_paths = [r["path"] for r in refs]
         story["character_refs"] = refs
+    else:
+        story = generate_story_fn(**story_kwargs)
 
     with open(os.path.join(story_dir, "story.json"), "w") as f:
         json.dump(story, f, indent=2)

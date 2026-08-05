@@ -3,12 +3,17 @@ import io
 import shutil
 import time
 import logging
+import concurrent.futures
 from PIL import Image, ImageDraw, ImageFont
 from config import OUTPUT_DIR
 from prompt_assembly import assemble_reference_prompt, character_label
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+# Bounded concurrency for the independent per-character reference calls
+# (PERF-7) — polite to API rate limits rather than firing all at once.
+MAX_REFERENCE_WORKERS = 4
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +148,40 @@ def generate_single_image(prompt: str, output_path: str, provider, model: str,
     return _generate_with_context(prompt, [], output_path, provider, model, caption_text)
 
 
+def _generate_one_reference(kind, index, char, art_style, refs_dir, provider, model) -> dict:
+    """Generate, save, and build the record for one character's reference
+    image. Runs on a worker thread — see generate_reference_images."""
+    photo_path = char.get("photo_path") if kind == "photoreal" else None
+    has_photo = bool(photo_path) and os.path.exists(photo_path)
+
+    prompt = assemble_reference_prompt(char, kind, art_style, has_photo=has_photo)
+    label = character_label(char)
+    logger.info(f"Generating {kind} reference {index} ({label})"
+                f"{' from uploaded photo' if has_photo else ''}")
+    start = time.time()
+
+    context_images = _load_context_bytes([photo_path]) if has_photo else []
+    image_data = provider.generate_image(
+        prompt=prompt, context_images=context_images, model=model
+    )
+
+    logger.info(f"Reference image received in {time.time() - start:.1f}s")
+    path = os.path.join(refs_dir, f"{kind}_{index}.png")
+    with open(path, "wb") as f:
+        f.write(image_data)
+
+    upload_copy_path = None
+    if has_photo:
+        upload_copy_path = os.path.join(refs_dir, f"{kind}_{index}_upload.png")
+        shutil.copyfile(photo_path, upload_copy_path)
+
+    return {
+        "kind": kind, "index": index, "name": label,
+        "path": path, "from_photo": has_photo,
+        "upload_path": upload_copy_path,
+    }
+
+
 def generate_reference_images(
     photoreal_characters: list,
     cartoon_characters: list,
@@ -165,6 +204,11 @@ def generate_reference_images(
     generated reference as <kind>_<index>_upload.png. A missing/stale photo_path
     degrades gracefully to the no-photo path.
 
+    Each character's reference is independent of every other, so they're
+    generated concurrently (bounded by MAX_REFERENCE_WORKERS) via
+    ThreadPoolExecutor.map, which preserves the reference-ordering invariant
+    in the returned list regardless of which call finishes first (PERF-7).
+
     Returns ordered records:
     [{"kind", "index", "name", "path", "from_photo", "upload_path"}, ...].
     upload_path is the saved copy of the original uploaded photo when from_photo
@@ -173,42 +217,25 @@ def generate_reference_images(
     refs_dir = os.path.join(output_dir, "refs")
     os.makedirs(refs_dir, exist_ok=True)
 
-    records = []
     groups = (
         ("photoreal", photoreal_characters or []),
         ("cartoon", cartoon_characters or []),
     )
-    for kind, chars in groups:
-        for index, char in enumerate(chars, start=1):
-            photo_path = char.get("photo_path") if kind == "photoreal" else None
-            has_photo = bool(photo_path) and os.path.exists(photo_path)
+    jobs = [
+        (kind, index, char)
+        for kind, chars in groups
+        for index, char in enumerate(chars, start=1)
+    ]
+    if not jobs:
+        return []
 
-            prompt = assemble_reference_prompt(char, kind, art_style, has_photo=has_photo)
-            label = character_label(char)
-            logger.info(f"Generating {kind} reference {index} ({label})"
-                        f"{' from uploaded photo' if has_photo else ''}")
-            start = time.time()
-
-            context_images = _load_context_bytes([photo_path]) if has_photo else []
-            image_data = provider.generate_image(
-                prompt=prompt, context_images=context_images, model=model
-            )
-
-            logger.info(f"Reference image received in {time.time() - start:.1f}s")
-            path = os.path.join(refs_dir, f"{kind}_{index}.png")
-            with open(path, "wb") as f:
-                f.write(image_data)
-
-            upload_copy_path = None
-            if has_photo:
-                upload_copy_path = os.path.join(refs_dir, f"{kind}_{index}_upload.png")
-                shutil.copyfile(photo_path, upload_copy_path)
-
-            records.append({
-                "kind": kind, "index": index, "name": label,
-                "path": path, "from_photo": has_photo,
-                "upload_path": upload_copy_path,
-            })
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(len(jobs), MAX_REFERENCE_WORKERS)
+    ) as executor:
+        records = list(executor.map(
+            lambda job: _generate_one_reference(*job, art_style, refs_dir, provider, model),
+            jobs,
+        ))
 
     logger.info(f"{len(records)} character reference image(s) generated.")
     return records

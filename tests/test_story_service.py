@@ -3,6 +3,8 @@ proves the extracted pipeline works standalone (ARCH-6)."""
 import inspect
 import json
 import os
+import threading
+import time
 
 import pytest
 
@@ -210,3 +212,76 @@ def test_generate_book_persists_story_json(tmp_path):
     with open(story_json_path) as f:
         saved = json.load(f)
     assert saved["title"] == "T"
+
+
+# --- PERF-7: overlap story generation with reference generation -------------
+
+def test_generate_book_overlaps_story_and_reference_generation(tmp_path):
+    # Neither generation step needs the other's output (refs need only the
+    # form characters; the story text doesn't depend on refs at all), so
+    # they should run concurrently in mixed-media mode. Prove it by
+    # recording each step's [start, end) window and asserting they overlap.
+    intervals = []
+    lock = threading.Lock()
+
+    def slow_story_fn(**kwargs):
+        start = time.monotonic()
+        time.sleep(0.05)
+        with lock:
+            intervals.append(("story", start, time.monotonic()))
+        return {
+            "title": "T",
+            "scenes": [{"scene_number": n, "text": "t", "image_prompt": "p"} for n in range(1, 6)],
+        }
+
+    def slow_refs_fn(photoreal, cartoon, art_style, output_dir, provider, model):
+        start = time.monotonic()
+        time.sleep(0.05)
+        with lock:
+            intervals.append(("refs", start, time.monotonic()))
+        return [{
+            "kind": "photoreal", "index": 1, "name": "Dad",
+            "path": os.path.join(output_dir, "refs", "photoreal_1.png"),
+            "from_photo": False, "upload_path": None,
+        }]
+
+    def images_fn(story, output_dir, provider, model, reference_paths=None):
+        return [os.path.join(output_dir, f"scene_{n}.png") for n in range(1, 6)]
+
+    story_service.generate_book(
+        keywords="x", characters="", setting="y",
+        story_type="adventure", art_style="2D flat vector cartoon (pastel)",
+        mixed_media=True,
+        photoreal_characters=[{"name": "Dad"}], cartoon_characters=[],
+        provider_id="google", image_model="gemini-3-pro-image-preview",
+        output_dir=str(tmp_path),
+        generate_story_fn=slow_story_fn,
+        generate_reference_images_fn=slow_refs_fn,
+        generate_all_images_fn=images_fn,
+    )
+
+    assert len(intervals) == 2
+    (_, s1, e1), (_, s2, e2) = intervals
+    assert s1 < e2 and s2 < e1  # overlapping windows -> ran concurrently
+
+
+def test_generate_book_classic_mode_does_not_overlap_anything(tmp_path):
+    # Classic mode has no references to generate, so there's nothing to
+    # overlap with — story generation should just run normally, unchanged.
+    fakes = _RecordingFakes()
+
+    result = story_service.generate_book(
+        keywords="x", characters="Mia", setting="y",
+        story_type="adventure", art_style="watercolor storybook illustration",
+        mixed_media=False,
+        photoreal_characters=[], cartoon_characters=[],
+        provider_id="google", image_model="gemini-2.5-flash-image",
+        output_dir=str(tmp_path),
+        generate_story_fn=fakes.story_fn,
+        generate_reference_images_fn=fakes.refs_fn,
+        generate_all_images_fn=fakes.images_fn,
+    )
+
+    assert len(fakes.story_calls) == 1
+    assert len(fakes.ref_calls) == 0
+    assert result["story"]["title"] == "T"

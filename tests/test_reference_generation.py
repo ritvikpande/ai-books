@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 
 from image_generator import generate_reference_images
 
@@ -10,11 +12,15 @@ STYLE = "watercolor storybook illustration"
 
 
 class FakeProvider:
+    """Thread-safe: generate_reference_images calls this concurrently (PERF-7)."""
+
     def __init__(self):
         self.calls = []
+        self._lock = threading.Lock()
 
     def generate_image(self, prompt, context_images, model):
-        self.calls.append({"prompt": prompt, "context_images": context_images, "model": model})
+        with self._lock:
+            self.calls.append({"prompt": prompt, "context_images": context_images, "model": model})
         return FAKE_PNG
 
 
@@ -68,8 +74,11 @@ def test_prompt_routing_by_kind(tmp_path):
     generate_reference_images(
         [{"name": "Dad"}], [{"name": "Lily"}], STYLE, str(tmp_path), provider, "m",
     )
-    assert "real person" in provider.calls[0]["prompt"]          # photoreal
-    assert "2D watercolor storybook illustration" in provider.calls[1]["prompt"]  # cartoon
+    # Jobs run concurrently (PERF-7), so provider.calls isn't guaranteed to be
+    # in submission order — find each prompt by content, not by index.
+    prompts = [c["prompt"] for c in provider.calls]
+    assert any("real person" in p for p in prompts)                           # photoreal
+    assert any("2D watercolor storybook illustration" in p for p in prompts)  # cartoon
 
 
 def test_photo_path_passed_as_context_images(tmp_path):
@@ -142,3 +151,76 @@ def test_cartoon_character_with_photo_path_ignored(tmp_path):
     )
     assert provider.calls[0]["context_images"] == []
     assert records[0]["from_photo"] is False
+
+
+# --- PERF-7: concurrent reference generation ---------------------------------
+
+class _IntervalRecordingProvider:
+    """Records each call's [start, end) wall-clock window (thread-safe) so
+    tests can prove calls actually overlapped in time, not just that the
+    right number of calls happened."""
+
+    def __init__(self, delay=0.05):
+        self.delay = delay
+        self.intervals = []
+        self._lock = threading.Lock()
+
+    def generate_image(self, prompt, context_images, model):
+        start = time.monotonic()
+        time.sleep(self.delay)
+        end = time.monotonic()
+        with self._lock:
+            self.intervals.append((start, end))
+        return FAKE_PNG
+
+
+def _any_overlap(intervals) -> bool:
+    for i in range(len(intervals)):
+        for j in range(i + 1, len(intervals)):
+            s1, e1 = intervals[i]
+            s2, e2 = intervals[j]
+            if s1 < e2 and s2 < e1:
+                return True
+    return False
+
+
+def test_reference_images_generate_concurrently(tmp_path):
+    provider = _IntervalRecordingProvider(delay=0.05)
+
+    generate_reference_images(
+        [{"name": "Dad"}, {"name": "Mom"}], [{"name": "Lily"}],
+        STYLE, str(tmp_path), provider, "model-x",
+    )
+
+    assert len(provider.intervals) == 3
+    assert _any_overlap(provider.intervals)
+
+
+class _NameKeyedDelayProvider:
+    """Delays by a name found in the prompt, so the first-submitted job can
+    be made the slowest — proving returned order reflects submission order,
+    not completion order."""
+
+    def __init__(self, delays_by_name, default_delay=0.01):
+        self.delays_by_name = delays_by_name
+        self.default_delay = default_delay
+
+    def generate_image(self, prompt, context_images, model):
+        delay = next((d for name, d in self.delays_by_name.items() if name in prompt),
+                     self.default_delay)
+        time.sleep(delay)
+        return FAKE_PNG
+
+
+def test_reference_order_preserved_under_concurrency(tmp_path):
+    # "Dad" is submitted first but finishes last; the reference-ordering
+    # invariant (photoreal first, in list order) must hold regardless.
+    provider = _NameKeyedDelayProvider({"Dad": 0.08, "Mom": 0.01, "Lily": 0.01})
+
+    records = generate_reference_images(
+        [{"name": "Dad"}, {"name": "Mom"}], [{"name": "Lily"}],
+        STYLE, str(tmp_path), provider, "model-x",
+    )
+
+    assert [r["name"] for r in records] == ["Dad", "Mom", "Lily"]
+    assert [r["kind"] for r in records] == ["photoreal", "photoreal", "cartoon"]

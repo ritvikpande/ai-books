@@ -1,5 +1,6 @@
 import io
 import logging
+import threading
 import time
 from abc import ABC, abstractmethod
 
@@ -59,16 +60,23 @@ class ImageProvider(ABC):
 class GeminiProvider(ImageProvider):
     def __init__(self):
         self._client = None
+        self._client_lock = threading.Lock()
 
     def _get_client(self):
         """Lazily build the Gemini client once and reuse it across calls.
 
         Lazy (not built in __init__) so importing this module — and the
         module-level PROVIDERS singleton below — never requires a valid
-        GEMINI_API_KEY to be present.
+        GEMINI_API_KEY to be present. Double-checked locking: generate_reference_images
+        (PERF-7) calls this concurrently from multiple threads on the same
+        shared provider instance, so the check-then-build must be race-free;
+        the lock is only taken on the rare path where a client doesn't exist
+        yet, not on every call once it's built.
         """
         if self._client is None:
-            self._client = get_client()
+            with self._client_lock:
+                if self._client is None:
+                    self._client = get_client()
         return self._client
 
     def _call_with_retry(self, client, model, contents, config):

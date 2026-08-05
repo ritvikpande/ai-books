@@ -1,6 +1,8 @@
 import io
 import json
 import logging
+import threading
+import time
 
 import pytest
 from google.genai import errors as genai_errors
@@ -130,6 +132,37 @@ def test_generate_image_reuses_client_across_calls(monkeypatch):
 
     provider.generate_image("prompt one", [], "model-x")
     provider.generate_image("prompt two", [], "model-x")
+
+    assert len(calls) == 1
+
+
+def test_generate_image_reuses_client_across_concurrent_calls(monkeypatch):
+    # PERF-7 makes generate_reference_images call this concurrently on a
+    # shared GeminiProvider instance — the lazy client build must not race.
+    fake_client = _FakeClient(_FakeResponse())
+    calls = []
+    calls_lock = threading.Lock()
+
+    def fake_get_client():
+        # Widen the race window: without a lock in _get_client, multiple
+        # threads can all observe self._client is None before any of them
+        # finishes this (deliberately slow) call and assigns the result.
+        time.sleep(0.02)
+        with calls_lock:
+            calls.append(1)
+        return fake_client
+
+    monkeypatch.setattr(providers_module, "get_client", fake_get_client)
+    provider = GeminiProvider()
+
+    threads = [
+        threading.Thread(target=lambda: provider.generate_image("p", [], "model-x"))
+        for _ in range(8)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
     assert len(calls) == 1
 
