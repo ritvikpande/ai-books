@@ -8,3 +8,6 @@ venv/
 .env
 .git/
 .vscode/
+outputs/
+.pytest_cache/
+tests/
